@@ -4,10 +4,16 @@ import (
 	"log"
 	"net"
 	"os"
+	"strings"
 
 	"github.com/YaoZengzeng/yustack/network/ipv4"
 	"github.com/YaoZengzeng/yustack/stack"
 	"github.com/YaoZengzeng/yustack/types"
+	"github.com/YaoZengzeng/yustack/link/tundev"
+)
+
+const (
+	nicId = 1
 )
 
 func main() {
@@ -37,7 +43,30 @@ func main() {
 
 	// Create the stack with only ipv4 temporarily, then add a tun-based
 	// NIC and address.
-	stack.New([]string{ipv4.ProtocolName}, nil)
+	s := stack.New([]string{ipv4.ProtocolName}, nil)
+
+	linkId, err := tundev.New(tunName)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	if err := s.CreateNic(nicId, linkId); err != nil {
+		log.Fatal(err)
+	}
+
+	if err := s.AddAddress(nicId, proto, addr); err != nil {
+		log.Fatal(err)
+	}
+
+	// Add default route
+	s.SetRouteTable([]types.Route{
+		{
+			Destination:		types.Address(strings.Repeat("\x00", len(addr))),
+			Mask:				types.Address(strings.Repeat("\x00", len(addr))),
+			Gateway:			"",
+			Nic:				nicId,
+		},
+	})
 
 	select {}
 }

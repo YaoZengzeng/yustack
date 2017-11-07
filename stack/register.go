@@ -1,11 +1,19 @@
 package stack
 
 import (
+	"sync"
+
 	"github.com/YaoZengzeng/yustack/types"
 )
 
 var (
 	networkProtocols = make(map[string]types.NetworkProtocolFactory)
+
+	linkEpMux		sync.RWMutex
+
+	nextLinkEndpointID	types.LinkEndpointID = 1
+
+	linkEndpoints	= make(map[types.LinkEndpointID]types.LinkEndpoint)
 )
 
 // RegisterNetworkProtocolFactory registers a new network protocol factory with
@@ -13,4 +21,26 @@ var (
 // is intended to be called by init() functions of the protocols.
 func RegisterNetworkProtocolFactory(name string, p types.NetworkProtocolFactory) {
 	networkProtocols[name] = p
+}
+
+// RegisterLinkEndpoint register a link layer protocol endpoint and returns an
+// ID that can be used to refer to it.
+func RegisterLinkEndpoint(linkEp types.LinkEndpoint) types.LinkEndpointID {
+	linkEpMux.Lock()
+	defer linkEpMux.Unlock()
+
+	id := nextLinkEndpointID
+	nextLinkEndpointID++
+
+	linkEndpoints[id] = linkEp
+
+	return id
+}
+
+// FindLinkEndpoint finds the link endpoint associated with the given id
+func FindLinkEndpoint(id types.LinkEndpointID) types.LinkEndpoint {
+	linkEpMux.RLock()
+	defer linkEpMux.RUnlock()
+
+	return linkEndpoints[id]
 }
