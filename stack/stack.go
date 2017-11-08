@@ -51,7 +51,7 @@ func (s *Stack) createNic(id types.NicId, linkEpId types.LinkEndpointID, enable 
 	}
 
 	s.mu.Lock()
-	defer s.mu.Lock()
+	defer s.mu.Unlock()
 
 	// Make sure id is unique
 	if _, ok := s.nics[id]; ok {

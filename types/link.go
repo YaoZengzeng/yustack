@@ -23,4 +23,8 @@ type LinkEndpoint interface {
 	// combined) headers can have.Higher levels use this information to reserve space in
 	// front of the packets they're building
 	MaxHeaderLength() uint16
+
+	// Attach attaches the data link layer endpoint to the network layer
+	// dispatcher of the stack
+	Attach(dispatcher NetworkDispatcher)
 }

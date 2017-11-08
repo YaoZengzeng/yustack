@@ -1,5 +1,9 @@
 package types
 
+import (
+	"github.com/YaoZengzeng/yustack/buffer"
+)
+
 // NetworkProtocolNumber is the number of a network protocol
 type NetworkProtocolNumber uint32
 
@@ -8,8 +12,38 @@ type NetworkProtocolNumber uint32
 type NetworkProtocol interface {
 	// Number returns the network protocol number.
 	Number() NetworkProtocolNumber
+
+	// ParseAddresses returns the source and destination addresses stored in a
+	// packet of this protocol
+	ParseAddresses(v buffer.View) (src, dst Address)
+
+	// NewEndpoint creates a new endpoint of this protocol
+	NewEndpoint(nicid NicId, addr Address, dispatcher TransportDispatcher, sender LinkEndpoint) (NetworkEndpoint, error)
+
+	// MinimumPacketSize returns the minimum valid packet size of this
+	// network protocol. The stack automatically drops any packets smaller
+	// than this targeted at this protocol
+	MinimumPacketSize() int
 }
 
 // NetworkProtocolFactory provides methods to be used by the stack to
 // instantiate network protocols.
 type NetworkProtocolFactory func() NetworkProtocol
+
+// NetworkEndpointId is the identifier of a network layer protocol endpoint
+// Currently the local address is sufficient because all supported protocols
+// (i.e., IPv4) have different sizes for their addresses
+type NetworkEndpointId struct {
+	LocalAddress	Address
+}
+
+// NetworkEndpoint is the interface that needs to be implemented by endpoints
+// of network layer protocols (eg., ipv4)
+type NetworkEndpoint interface {
+	// HandlePacket is called by the link layer when new packets arrive to
+	// this network endpoint
+	HandlePacket(r *Route, vv *buffer.VectorisedView)
+
+	// Id returns the network protocol endpoint Id
+	Id() *NetworkEndpointId
+}

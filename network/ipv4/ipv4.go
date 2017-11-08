@@ -6,9 +6,12 @@
 package ipv4
 
 import (
+	"log"
+
 	"github.com/YaoZengzeng/yustack/header"
 	"github.com/YaoZengzeng/yustack/stack"
 	"github.com/YaoZengzeng/yustack/types"
+	"github.com/YaoZengzeng/yustack/buffer"
 )
 
 const (
@@ -18,6 +21,41 @@ const (
 	// ProtocolNumber is the ipv4 protocol number.
 	ProtocolNumber = header.IPv4ProtocolNumber
 )
+
+type address [header.IPv4AddressSize]byte
+
+type endpoint struct {
+	nicid 			types.NicId
+	id 				types.NetworkEndpointId
+	address 		address
+	linkEp 			types.LinkEndpoint
+	dispatcher 		types.TransportDispatcher
+	echoRequests	chan echoRequest
+}
+
+func newEndpoint(nicid types.NicId, addr types.Address, dispatcher types.TransportDispatcher, linkEp types.LinkEndpoint) *endpoint {
+	e := &endpoint{
+		nicid:			nicid,
+		linkEp:			linkEp,
+		dispatcher:		dispatcher,
+		echoRequests:	make(chan echoRequest, 10),
+	}
+	copy(e.address[:], addr)
+	e.id = types.NetworkEndpointId{types.Address(e.address[:])}
+
+	return e
+}
+
+// Id returns the ipv4 endpoint Id
+func (e *endpoint) Id() *types.NetworkEndpointId {
+	return &e.id
+}
+
+// HandlePacket is called by the link layer when new ipv4 packets arrive for
+// this endpoint
+func (e *endpoint) HandlePacket(r *types.Route, vv *buffer.VectorisedView) {
+	log.Printf("HandlePacket has not implemented\n")
+}
 
 type protocol struct{}
 
@@ -31,6 +69,22 @@ func NewProtocol() types.NetworkProtocol {
 // Number returns the ipv4 protocol number
 func (p *protocol) Number() types.NetworkProtocolNumber {
 	return ProtocolNumber
+}
+
+// MinimumPacketSize returns the minimum valid ipv4 packet size
+func (p *protocol) MinimumPacketSize() int {
+	return header.IPv4MinimumSize
+}
+
+// ParseAddresses implements NetworkProtocol.ParseAddresses
+func (p *protocol) ParseAddresses(v buffer.View) (src, dst types.Address) {
+	h := header.IPv4(v)
+	return h.SourceAddress(), h.DestinationAddress()
+}
+
+// NewEndpoint creates a new ipv4 endpoint
+func (p *protocol) NewEndpoint(nicid types.NicId, addr types.Address, dispatcher types.TransportDispatcher, linkEp types.LinkEndpoint) (types.NetworkEndpoint, error) {
+	return newEndpoint(nicid, addr, dispatcher, linkEp), nil
 }
 
 func init() {

@@ -1,12 +1,23 @@
 package tundev
 
 import (
+	"log"
 	"syscall"
 	"unsafe"
 
 	"github.com/YaoZengzeng/yustack/types"
 	"github.com/YaoZengzeng/yustack/stack"
+	"github.com/YaoZengzeng/yustack/buffer"
+	"github.com/YaoZengzeng/yustack/header"
 )
+
+// Placed here to avoid breakage caused by coverage
+// instrumentation. Any, even unrelated, changes to this file should ensure
+// that coverage still work
+func blockingPoll(fds unsafe.Pointer, nfds int, timeout int64) (n int, err syscall.Errno)
+
+// BufConfig defines the shape of the vectorized view used to read packets from the Nic
+var BufConfig = []int{128, 256, 512, 1024}
 
 type endpoint struct {
 	// fd is the file descriptor used to send and receive packets
@@ -14,6 +25,13 @@ type endpoint struct {
 
 	// mtu (maximum transmission unit) is the maximum size of a packets
 	mtu uint32
+
+	// The sized buffer of views
+	vv 		*buffer.VectorisedView
+	// Buffer used for system call
+	iovecs 	[]syscall.Iovec
+	// Buffer used to store raw data
+	views	[]buffer.View
 }
 
 // MTU implements stack.LinkEndpoint.MTU. It returns the value initialized
@@ -31,6 +49,111 @@ func (e *endpoint) MaxHeaderLength() uint16 {
 // LinkAddress returns the link address of this endpoint
 func (e *endpoint) LinkAddress() types.LinkAddress {
 	return ""
+}
+
+// Attach launches the goroutine that reads packets from the file descriptor and
+// dispatches them via the provided dispatcher
+func (e *endpoint) Attach(dispatcher types.NetworkDispatcher) {
+	go e.dispatchLoop(dispatcher)
+}
+
+// dispatchLoop reads packets from the file descriptor in a loop and dispatches
+// them to the network stack
+func (e *endpoint) dispatchLoop(d types.NetworkDispatcher) error {
+	for {
+		ok, err := e.dispatch(d)
+		if err != nil || !ok {
+			return nil
+		}
+	}
+}
+
+// dispatch reads one packet from the file descriptor and dispatches it
+func (e *endpoint) dispatch(d types.NetworkDispatcher) (bool, error) {
+	e.allocateViews(BufConfig)
+
+	n, err := blockingReadv(e.fd, e.iovecs)
+	if err != nil {
+		return false, err
+	}
+
+	if n <= 0 {
+		return false, nil
+	}
+
+	used := e.capViews(n, BufConfig)
+	e.vv.SetViews(e.views[:used])
+	e.vv.SetSize(n)
+
+	// We don't get any indication of what the packet is, so try to guess
+	// if it's an IPv4 packet
+	var p types.NetworkProtocolNumber
+	switch header.IPVersion(e.views[0]) {
+	case header.IPv4Version:
+		p = header.IPv4ProtocolNumber
+		log.Printf("Network protocol is %x\n", p)
+	default:
+		log.Printf("Unknown network protocol, dropped\n")
+		return true, nil
+	}
+
+	d.DeliverNetworkPacket(e, "", p, e.vv)
+
+	// Prepare e.views for another packet: release used views
+	for i := 0; i < used; i++ {
+		e.views[i] = nil
+	}
+
+	return true, nil
+}
+
+func (e *endpoint) allocateViews(bufConfig []int) {
+	for i, _ := range e.views {
+		b := buffer.NewView(bufConfig[i])
+		e.views[i] = b
+		e.iovecs[i] = syscall.Iovec{
+			Base:	&b[0],
+			Len:	uint64(len(b)),
+		}
+	}
+}
+
+// blockingReadv reads from a file descriptor that is set up as non-blocking and
+// stores the data in a list of iovecs buffers. If no data is available, it will
+// block in a poll() syscall until the file descriptor becomes readable.
+func blockingReadv(fd int, iovecs []syscall.Iovec) (int, error) {
+	for {
+		n, _, e := syscall.RawSyscall(syscall.SYS_READV, uintptr(fd), uintptr(unsafe.Pointer(&iovecs[0])), uintptr(len(iovecs)))
+		if e == 0 {
+			return int(n), nil
+		}
+
+		event := struct {
+			fd 		uint32
+			events	int16
+			revents	int16
+		}{
+			fd:	uint32(fd),
+			events:	1,		// POLLIN
+		}
+
+		_, e = blockingPoll(unsafe.Pointer(&event), 1, -1)
+		if e != 0 && e != syscall.EINTR {
+			return 0, TranslateErrno(e)
+		}
+	}
+}
+
+func (e *endpoint) capViews(n int, buffers []int) int {
+	c := 0
+	for i, s := range buffers {
+		c += s
+		if c >= n {
+			e.views[i].CapLength(s - (c - n))
+			return i + 1
+		}
+	}
+	return len(buffers)
 }
 
 // getmtu determines the MTU of a network interface device
@@ -100,7 +223,11 @@ func New(tunName string) (types.LinkEndpointID, error) {
 	e := &endpoint{
 		fd:		fd,
 		mtu:	mtu,
+		views:	make([]buffer.View, len(BufConfig)),
+		iovecs:	make([]syscall.Iovec, len(BufConfig)),
 	}
+	vv := buffer.NewVectorisedView(e.views, 0)
+	e.vv = &vv
 
 	return stack.RegisterLinkEndpoint(e), nil
 }

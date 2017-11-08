@@ -38,8 +38,7 @@ func main() {
 	} else {
 		log.Fatalf("Unknown IP type: %v", address)
 	}
-
-	log.Printf("address is %v, protocol is %v", addr, proto)
+	log.Printf("main: protocol is %x, address is %x\n", proto, addr)
 
 	// Create the stack with only ipv4 temporarily, then add a tun-based
 	// NIC and address.

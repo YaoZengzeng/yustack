@@ -1,5 +1,9 @@
 package types
 
+import (
+	"github.com/YaoZengzeng/yustack/buffer"
+)
+
 // Address is a byte slice cast as a string that represents the address of a
 // network node. Or, when we support the case of unix endpoints, it may represent a path.
 type Address string
@@ -13,5 +17,14 @@ type NicId int32
 type NetworkDispatcher interface {
 	// DeliverNetworkPacket finds the appropriate network protocol
 	// endpoint and hands the packet for further processing
-	DeliverNetworkPacket(linkEp LinkEndpoint, remoteLinkAddr LinkAddress, protocol NetworkProtocolNumber)
+	DeliverNetworkPacket(linkEp LinkEndpoint, remoteLinkAddr LinkAddress, protocol NetworkProtocolNumber, vv *buffer.VectorisedView)
+}
+
+// TransportDispatcher contains the methods used by the network stack to deliver
+// packets to the appropriate transport endpoint after it has been handled by the
+// network layer
+type TransportDispatcher interface {
+	// DeliverTransportPacket delivers the packets to the appropriate
+	// transport protocol endpoint
+	DeliverTransportPacket(r *Route, protocol TransportProtocolNumber, vv *buffer.VectorisedView)
 }
