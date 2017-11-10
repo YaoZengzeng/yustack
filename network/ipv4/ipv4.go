@@ -43,6 +43,8 @@ func newEndpoint(nicid types.NicId, addr types.Address, dispatcher types.Transpo
 	copy(e.address[:], addr)
 	e.id = types.NetworkEndpointId{types.Address(e.address[:])}
 
+	go e.echoReplier()
+
 	return e
 }
 
@@ -54,7 +56,45 @@ func (e *endpoint) Id() *types.NetworkEndpointId {
 // HandlePacket is called by the link layer when new ipv4 packets arrive for
 // this endpoint
 func (e *endpoint) HandlePacket(r *types.Route, vv *buffer.VectorisedView) {
-	log.Printf("HandlePacket has not implemented\n")
+	h := header.IPv4(vv.First())
+	if !h.IsValid(vv.Size()) {
+		log.Printf("HandlePacket for IPv4: header is invalid\n")
+		return
+	}
+
+	hlen := int(h.HeaderLength())
+	vv.TrimFront(hlen)
+
+	p := types.TransportProtocolNumber(h.Protocol())
+	if p == header.ICMPv4ProtocolNumber {
+		e.handleICMP(r, vv)
+	}
+}
+
+// WritePacket writes a packet to the given destination address and protocol
+func (e *endpoint) WritePacket(r *types.Route, hdr *buffer.Prependable, payload buffer.View, protocol types.TransportProtocolNumber) error {
+	ip := header.IPv4(hdr.Prepend(header.IPv4MinimumSize))
+	length := uint16(hdr.UsedLength() + len(payload))
+	id := uint32(0)
+
+	ip.Encode(&header.IPv4Fields{
+		IHL:			header.IPv4MinimumSize,
+		TotalLength:	length,
+		ID:				uint16(id),
+		TTL:			64,
+		Protocol:		uint8(protocol),
+		SrcAddr:		types.Address(e.address[:]),
+		DstAddr:		r.RemoteAddress,
+	})
+	ip.SetChecksum(^ip.CalculateChecksum())
+
+	return e.linkEp.WritePacket(r, hdr, payload, 0)
+}
+
+// MaxHeaderLength returns the maximum length needed by ipv4 headers (and
+// underlying protocols)
+func (e *endpoint) MaxHeaderLength() uint16 {
+	return e.linkEp.MaxHeaderLength() + header.IPv4MinimumSize
 }
 
 type protocol struct{}

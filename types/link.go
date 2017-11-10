@@ -1,5 +1,9 @@
 package types
 
+import (
+	"github.com/YaoZengzeng/yustack/buffer"
+)
+
 // LinkAddress is a byte slice cast as a string that represents a link address.
 // It is typically a 6-byte MAC address
 type LinkAddress string
@@ -27,4 +31,7 @@ type LinkEndpoint interface {
 	// Attach attaches the data link layer endpoint to the network layer
 	// dispatcher of the stack
 	Attach(dispatcher NetworkDispatcher)
+
+	// WritePacket writes a packet with the given protocol through the given route
+	WritePacket(r *Route, hdr *buffer.Prependable, payload buffer.View, protocol NetworkProtocolNumber) error
 }

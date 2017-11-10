@@ -1,6 +1,8 @@
 package header
 
 import (
+	"encoding/binary"
+
 	"github.com/YaoZengzeng/yustack/types"
 )
 
@@ -16,6 +18,43 @@ const (
 	srcAddr		=	12
 	dstAddr		=	16
 )
+
+// IPv4Fields contains the fields of an IPv4 packet. It is used to describe the
+// fields of a packet that needs to be encoded
+type IPv4Fields struct {
+	// IHL is the "internet header length" field of an IPv4 packet
+	IHL uint8
+
+	// TOS is the "type of service" field of an IPv4 packet
+	TOS uint8
+
+	// TotalLength is the "total length" field of an IPv4 packet
+	TotalLength uint16
+
+	// ID is the "identification" field of an IPv4 packet
+	ID uint16
+
+	// Flags is the "flags" fields of an IPv4 packet
+	Flags uint8
+
+	// FragmentOffset is the "fragment offset" field of an IPv4 packet
+	FragmentOffset uint16
+
+	// TTL is the "time to live" field of an IPv4 packet
+	TTL uint8
+
+	// Protocol is the "protocol" field of an IPv4 packet
+	Protocol uint8
+
+	// Checksum is the "checksum" field of an IPv4 packet
+	Checksum uint16
+
+	// SrcAddr is the "source ip address" of an IPv4 packet
+	SrcAddr types.Address
+
+	// DstAddr is the "destination ip address" of an IPv4 packet
+	DstAddr types.Address
+}
 
 // IPv4 represents an ipv4 header stored in a byte array
 // Most of the methods of IPv4 access to the underlying slcie without
@@ -47,6 +86,21 @@ func IPVersion(b []byte) int {
 	return int(b[versIHL] >> 4)
 }
 
+// HeaderLength returns the value of the "header length" field of the ipv4
+func (b IPv4) HeaderLength() uint8 {
+	return (b[versIHL] & 0xf) * 4
+}
+
+// TotalLength returns the "total length" field of the ipv4 header
+func (b IPv4) TotalLength() uint16 {
+	return binary.BigEndian.Uint16(b[totalLen:])
+}
+
+// Protocol returns the value of the protocol field of the ipv4 header
+func (b IPv4) Protocol() uint8 {
+	return b[protocol]
+}
+
 // SourceAddress returns the "source address" field of the ipv4 header
 func (b IPv4) SourceAddress() types.Address {
 	return types.Address(b[srcAddr : srcAddr + IPv4AddressSize])
@@ -55,4 +109,55 @@ func (b IPv4) SourceAddress() types.Address {
 // DestinationAddress returns the "destination address" field of the ipv4 header
 func (b IPv4) DestinationAddress() types.Address {
 	return types.Address(b[dstAddr : dstAddr + IPv4AddressSize])
+}
+
+// IsValid performs basic validation on the packet
+func (b IPv4) IsValid(pktSize int) bool {
+	if len(b) < IPv4MinimumSize {
+		return false
+	}
+
+	hlen := int(b.HeaderLength())
+	tlen := int(b.TotalLength())
+	if hlen > tlen || tlen > pktSize {
+		return false
+	}
+
+	return true
+}
+
+// Encode encodes all the fields of the ipv4 header
+func (b IPv4) Encode(i *IPv4Fields) {
+	b[versIHL] = (4 << 4) | ((i.IHL / 4) & 0xf)
+	b[tos] = i.TOS
+	b.SetTotalLength(i.TotalLength)
+	binary.BigEndian.PutUint16(b[id:], i.ID)
+	b.SetFlagsFragmentOffset(i.Flags, i.FragmentOffset)
+	b[ttl] = i.TTL
+	b[protocol] = i.Protocol
+	b.SetChecksum(i.Checksum)
+	copy(b[srcAddr : srcAddr + IPv4AddressSize], i.SrcAddr)
+	copy(b[dstAddr : dstAddr + IPv4AddressSize], i.DstAddr)
+}
+
+// SetTotalLength sets the "total length" field of the ipv4 header
+func (b IPv4) SetTotalLength(totalLength uint16) {
+	binary.BigEndian.PutUint16(b[totalLen:], totalLength)
+}
+
+// SetChecksum sets the checksum field of the ipv4 field header
+func (b IPv4) SetChecksum(v uint16) {
+	binary.BigEndian.PutUint16(b[checksum:], v)
+}
+
+// SetFlagsFragmentOffset sets the "flags" and "fragment offset" fields of the
+// ipv4 header
+func (b IPv4) SetFlagsFragmentOffset(flags uint8, offset uint16) {
+	v := (uint16(flags) << 13) | (offset >> 3)
+	binary.BigEndian.PutUint16(b[flagsFO:], v)
+}
+
+// CalculateChecksum calculates the checksum of the ipv4 header
+func (b IPv4) CalculateChecksum() uint16 {
+	return Checksum(b[:b.HeaderLength()], 0)
 }

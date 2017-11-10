@@ -46,4 +46,13 @@ type NetworkEndpoint interface {
 
 	// Id returns the network protocol endpoint Id
 	Id() *NetworkEndpointId
+
+	// MaxHeaderLength returns the maximum size the network (and lower
+	// level layers combined) headers can have. Higher levels use this
+	// information to reserve space in the front of the packets they're
+	// building
+	MaxHeaderLength() uint16
+
+	// WritePacket writes the packet to the given destination address and protocol
+	WritePacket(r *Route, hdr *buffer.Prependable, payload buffer.View, protocol TransportProtocolNumber) error
 }

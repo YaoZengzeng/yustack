@@ -51,6 +51,12 @@ func (e *endpoint) LinkAddress() types.LinkAddress {
 	return ""
 }
 
+// WritePacket writes outbound packets to the file descriptor. If it is not writable
+// right now, drop the packet
+func (e *endpoint) WritePacket(r *types.Route, hdr *buffer.Prependable, payload buffer.View, protocol types.NetworkProtocolNumber) error {
+	return nonBlockingWrite2(e.fd, hdr.UsedBytes(), payload)
+}
+
 // Attach launches the goroutine that reads packets from the file descriptor and
 // dispatches them via the provided dispatcher
 func (e *endpoint) Attach(dispatcher types.NetworkDispatcher) {
@@ -142,6 +148,30 @@ func blockingReadv(fd int, iovecs []syscall.Iovec) (int, error) {
 			return 0, TranslateErrno(e)
 		}
 	}
+}
+
+// NonBlockingWrite2 writes up to two byte slices to a file descriptor in a
+// single syscall. It fails if partial data is written
+func nonBlockingWrite2(fd int, b1, b2 []byte) error {
+	// We have tow buffers. Build the iovec that represents them and issue
+	// a writev syscall
+	iovec := [...]syscall.Iovec{
+		{
+			Base:	(*byte)(unsafe.Pointer(&b1[0])),
+			Len:	uint64(len(b1)),
+		},
+		{
+			Base:	(*byte)(unsafe.Pointer(&b2[0])),
+			Len:	uint64(len(b2)),
+		},
+	}
+
+	_, _, e := syscall.RawSyscall(syscall.SYS_WRITEV, uintptr(fd), uintptr(unsafe.Pointer(&iovec[0])), 2)
+	if e != 0 {
+		return TranslateErrno(e)
+	}
+
+	return nil
 }
 
 func (e *endpoint) capViews(n int, buffers []int) int {

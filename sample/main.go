@@ -58,7 +58,7 @@ func main() {
 	}
 
 	// Add default route
-	s.SetRouteTable([]types.Route{
+	s.SetRouteTable([]types.RouteEntry{
 		{
 			Destination:		types.Address(strings.Repeat("\x00", len(addr))),
 			Mask:				types.Address(strings.Repeat("\x00", len(addr))),

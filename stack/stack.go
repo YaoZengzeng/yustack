@@ -18,7 +18,7 @@ type Stack struct {
 
 	// route is the route table passed in by the user via SetRouteTable(),
 	// it is used by FindRoute() to build a route for a specific destination
-	routeTable 		[]types.Route
+	routeTable 		[]types.RouteEntry
 }
 
 // New allocates a new networking stack with only the requested networking and
@@ -88,7 +88,7 @@ func (s *Stack) AddAddress(id types.NicId, protocol types.NetworkProtocolNumber,
 
 // SetRouteTable assigns the route table to be used by this stack. It
 // specifies which Nic and gateway to use for given destination address ranges
-func (s *Stack) SetRouteTable(table []types.Route) {
+func (s *Stack) SetRouteTable(table []types.RouteEntry) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

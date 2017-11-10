@@ -99,7 +99,7 @@ func (n *Nic) DeliverNetworkPacket(linkEp types.LinkEndpoint, remoteLinkAddr typ
 		return
 	}
 
-	_, dst := netProtocol.ParseAddresses(vv.First())
+	src, dst := netProtocol.ParseAddresses(vv.First())
 	id := types.NetworkEndpointId{types.Address(dst)}
 
 	// Lock here
@@ -109,7 +109,11 @@ func (n *Nic) DeliverNetworkPacket(linkEp types.LinkEndpoint, remoteLinkAddr typ
 		return
 	}
 
-	ref.ep.HandlePacket(nil, vv)
+	r := types.MakeRoute(protocol, dst, src, ref.ep)
+	r.LocalLinkAddress = linkEp.LinkAddress()
+	r.RemoteLinkAddress = remoteLinkAddr
+
+	ref.ep.HandlePacket(r, vv)
 }
 
 // DeliverTransportPacket delivers the packets to the appropriate transport

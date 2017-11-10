@@ -19,6 +19,12 @@ func (v *View) CapLength(length int) {
 	*v = (*v)[:length:length]
 }
 
+// TrimFront removes the first "count" bytes from the visible section of the
+// buffer
+func (v *View) TrimFront(count int) {
+	*v = (*v)[count:]
+}
+
 // VectorisedView is a vectorised version of View using non contigous memory
 // It supports all the convenience methods supported by View
 type VectorisedView struct {
@@ -49,4 +55,41 @@ func (vv *VectorisedView) First() View {
 		panic("vview is empty")
 	}
 	return vv.views[0]
+}
+
+// TrimFront removes the first "count" bytes of the vectorised view
+func (vv *VectorisedView) TrimFront(count int) {
+	for count > 0 && len(vv.views) > 0 {
+		if count < len(vv.views[0]) {
+			vv.size -= count
+			vv.views[0].TrimFront(count)
+			return
+		}
+		count -= len(vv.views[0])
+		vv.RemoveFirst()
+	}
+}
+// RemoveFirst removes the first view of the vectorised view
+func (vv *VectorisedView) RemoveFirst() {
+	if len(vv.views) == 0 {
+		return
+	}
+	vv.size -= len(vv.views[0])
+	vv.views = vv.views[1:]
+}
+
+// ToView returns a single view containing the content of the vectorised view
+func (vv *VectorisedView) ToView() View {
+	v := make([]byte, vv.size)
+	u := v
+	for i := range vv.views {
+		n := copy(u, vv.views[i])
+		u = u[n:]
+	}
+	return v
+}
+
+// Size returns the size in bytes of the entire content stored in the vectorised view
+func (vv *VectorisedView) Size() int {
+	return vv.size
 }
