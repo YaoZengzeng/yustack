@@ -23,6 +23,21 @@ type RouteEntry struct {
 	Nic 			NicId
 }
 
+// Match determines if r is viable for the given destination address
+func (r *RouteEntry) Match(addr Address) bool {
+	if len(addr) != len(r.Destination) {
+		return false
+	}
+
+	for i := 0; i < len(r.Destination); i++ {
+		if (addr[i] & r.Mask[i]) != r.Destination[i] {
+			return false
+		}
+	}
+
+	return true
+}
+
 // Route represents a route through the networking stack to a given destination
 type Route struct {
 	// RemoteAddress is the final destination of the route

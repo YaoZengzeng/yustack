@@ -5,6 +5,7 @@ package stack
 
 import (
 	"sync"
+	"log"
 
 	"github.com/YaoZengzeng/yustack/types"
 )
@@ -12,6 +13,9 @@ import (
 // Stack is a networking stack, with all supported protocols, NICs, and route table.
 type Stack struct {
 	networkProtocols map[types.NetworkProtocolNumber]types.NetworkProtocol
+	transportProtocols map[types.TransportProtocolNumber]*types.TransportProtocolState
+
+	demux			*transportDemuxer
 
 	mu				sync.RWMutex
 	nics 			map[types.NicId]*Nic
@@ -25,8 +29,9 @@ type Stack struct {
 // transport protocols configured with default options.
 func New(network []string, transport []string) *Stack {
 	s := &Stack{
-		networkProtocols: make(map[types.NetworkProtocolNumber]types.NetworkProtocol),
-		nics:			  make(map[types.NicId]*Nic),
+		networkProtocols: 	make(map[types.NetworkProtocolNumber]types.NetworkProtocol),
+		transportProtocols:	make(map[types.TransportProtocolNumber]*types.TransportProtocolState),
+		nics:			  	make(map[types.NicId]*Nic),
 	}
 
 	// Add specified network protocols.
@@ -38,6 +43,21 @@ func New(network []string, transport []string) *Stack {
 		netProtocol := netProtocolFactory()
 		s.networkProtocols[netProtocol.Number()] = netProtocol
 	}
+
+	// Add specified transport protocols
+	for _, name := range transport {
+		transProtocolFactory, ok := transportProtocols[name]
+		if !ok {
+			continue
+		}
+		transProtocol := transProtocolFactory()
+		s.transportProtocols[transProtocol.Number()] = &types.TransportProtocolState{
+			Protocol:	transProtocol,
+		}
+	}
+
+	// Create the global transport demuxer
+	s.demux = newTransportDemuxer(s)
 
 	return s
 }
@@ -93,4 +113,73 @@ func (s *Stack) SetRouteTable(table []types.RouteEntry) {
 	defer s.mu.Unlock()
 
 	s.routeTable = table
+}
+
+// RegisterTransportEndpoint registers the given endpoint with the stack
+// transport dispatcher. Received packets that match the provided id will be
+// delivered to the given endpoint; specifiying a nic is optional, but
+// nic-specific Ids have precedence over global ones
+func (s *Stack) RegisterTransportEndpoint(nicId types.NicId, netProtos []types.NetworkProtocolNumber, protocol types.TransportProtocolNumber, id types.TransportEndpointId, ep types.TransportEndpoint) error {
+	if nicId == 0 {
+		return s.demux.registerEndpoint(netProtos, protocol, id, ep)
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	nic := s.nics[nicId]
+	if nic == nil {
+		return types.ErrUnknownNicId
+	}
+
+	return nic.demux.registerEndpoint(netProtos, protocol, id, ep)
+}
+
+// UnregisterTransportEndpoint removes the endpoint with the given id from the
+// stack transport dispatcher
+func (s *Stack) UnregisterTransportEndpoint(nicId types.NicId, netProtos []types.NetworkProtocolNumber, protocol types.TransportProtocolNumber, id types.TransportEndpointId) {
+	if nicId == 0 {
+		s.demux.unregisterEndpoint(netProtos, protocol, id)
+		return
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	nic := s.nics[nicId]
+	if nic != nil {
+		nic.demux.unregisterEndpoint(netProtos, protocol, id)
+	}
+}
+
+// FindRoute creates a route to the given destination address, leaving through
+// the given nic and local address (if provided)
+func (s *Stack) FindRoute(id types.NicId, localAddress, remoteAddress types.Address, netProto types.NetworkProtocolNumber) (*types.Route, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	for i := range s.routeTable {
+		if id != 0 && id != s.routeTable[i].Nic || !s.routeTable[i].Match(remoteAddress) {
+			continue
+		}
+
+		nic := s.nics[s.routeTable[i].Nic]
+		if nic == nil {
+			continue
+		}
+
+		// Use the first endpoint of given network protocol
+		ref := nic.primaryEndpoint()
+		if ref == nil {
+			log.Printf("FindRoute: can not find network endpoint of given network protocol")
+			continue
+		}
+
+		r := types.MakeRoute(netProto, ref.ep.Id().LocalAddress, remoteAddress, ref.ep)
+		// Ignore remote link address
+		r.NextHop = s.routeTable[i].Gateway
+		return r, nil
+	}
+
+	return &types.Route{}, types.ErrNoRoute
 }

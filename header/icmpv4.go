@@ -12,6 +12,9 @@ const (
 	// ICMPv4MinimumSize is the minimum size of a valid ICMP packet
 	ICMPv4MinimumSize = 4
 
+	// ICMPv4EchoMinimumSize is the minimum size of a valid ICMP echo packet
+	ICMPv4EchoMinimumSize = 6
+
 	// ICMPv4ProtocolNumber is the ICMP transport protocol number
 	ICMPv4ProtocolNumber types.TransportProtocolNumber = 1
 )

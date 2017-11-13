@@ -15,6 +15,8 @@ type Nic struct {
 	id			types.NicId
 	linkEp		types.LinkEndpoint
 
+	demux		*transportDemuxer
+
 	mu			sync.RWMutex
 	endpoints 	map[types.NetworkEndpointId]*referencedNetworkEndpoint
 }
@@ -24,6 +26,7 @@ func newNic(stack *Stack, id types.NicId, ep types.LinkEndpoint) *Nic {
 		stack:		stack,
 		id:			id,
 		linkEp:		ep,
+		demux:		newTransportDemuxer(stack),
 		endpoints:	make(map[types.NetworkEndpointId]*referencedNetworkEndpoint),
 	}
 }
@@ -113,11 +116,47 @@ func (n *Nic) DeliverNetworkPacket(linkEp types.LinkEndpoint, remoteLinkAddr typ
 	r.LocalLinkAddress = linkEp.LinkAddress()
 	r.RemoteLinkAddress = remoteLinkAddr
 
+	// Corresponding network endpoint handling the packet
 	ref.ep.HandlePacket(r, vv)
 }
 
 // DeliverTransportPacket delivers the packets to the appropriate transport
 // protocol endpoint
 func (n *Nic) DeliverTransportPacket(r *types.Route, protocol types.TransportProtocolNumber, vv *buffer.VectorisedView) {
-	log.Printf("DeliverTransportPacket has not implemented yet\n")
+	state, ok := n.stack.transportProtocols[protocol]
+	if !ok {
+		log.Printf("DeliverTransportPacket: protocol not found, drop\n")
+		return
+	}
+
+	transProtocol := state.Protocol
+	if len(vv.First())	 < transProtocol.MinimumPacketSize() {
+		log.Printf("DeliverTransportPacket: packet is not big enough, drop\n")
+		return
+	}
+
+	srcPort, dstPort, err := transProtocol.ParsePorts(vv.First())
+	if err != nil {
+		log.Printf("DeliverTransportPacket: parse ports failed, drop\n")
+		return
+	}
+
+	id := types.TransportEndpointId{dstPort, r.LocalAddress, srcPort, r.RemoteAddress}
+	if n.demux.deliverPacket(r, protocol, vv, id) {
+		return
+	}
+	if n.stack.demux.deliverPacket(r, protocol, vv, id) {
+		return
+	}
+
+	log.Printf("DeliverTransportPacket: deliver packet failed, drop\n")
+}
+
+// primaryEndpoint returns the primary endpoint of nic
+func (n *Nic) primaryEndpoint() *referencedNetworkEndpoint {
+	for _, r := range n.endpoints {
+		return r
+	}
+
+	return nil
 }

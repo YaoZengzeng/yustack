@@ -4,12 +4,17 @@ import (
 	"log"
 	"net"
 	"os"
+	"time"
 	"strings"
 
 	"github.com/YaoZengzeng/yustack/network/ipv4"
 	"github.com/YaoZengzeng/yustack/stack"
 	"github.com/YaoZengzeng/yustack/types"
 	"github.com/YaoZengzeng/yustack/link/tundev"
+)
+
+const (
+	stackAddr = "\x0a\x01\x00\x01"
 )
 
 const (
@@ -38,11 +43,10 @@ func main() {
 	} else {
 		log.Fatalf("Unknown IP type: %v", address)
 	}
-	log.Printf("main: protocol is %x, address is %x\n", proto, addr)
 
 	// Create the stack with only ipv4 temporarily, then add a tun-based
 	// NIC and address.
-	s := stack.New([]string{ipv4.ProtocolName}, nil)
+	s := stack.New([]string{ipv4.ProtocolName}, []string{ipv4.PingProtocolName})
 
 	linkId, err := tundev.New(tunName)
 	if err != nil {
@@ -66,6 +70,25 @@ func main() {
 			Nic:				nicId,
 		},
 	})
+
+	ch := make(chan ipv4.PingReply, 1)
+	p := ipv4.Pinger{
+		Stack: 		s,
+		NicId:		1,
+		Address:	stackAddr,
+		Wait:		10 * time.Millisecond,
+		Count:		1,	// one ping only
+	}
+	if err := p.Ping(ch); err != nil {
+		log.Fatal("icmp.Ping failed\n")
+	}
+
+	ping := <-ch
+	if ping.Error != nil {
+		log.Fatal("bad ping response: %v\n", ping.Error)
+	}
+
+	log.Printf("ping test succeeded\n")
 
 	select {}
 }
