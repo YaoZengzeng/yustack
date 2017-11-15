@@ -25,6 +25,13 @@ func (v *View) TrimFront(count int) {
 	*v = (*v)[count:]
 }
 
+// ToVectorisedView transforms a View in a VectorisedView from an
+// already-allocated slice of View
+func (v *View) ToVectorisedView(views [1]View) VectorisedView {
+	views[0] = *v
+	return NewVectorisedView(views[:], len(*v))
+}
+
 // VectorisedView is a vectorised version of View using non contigous memory
 // It supports all the convenience methods supported by View
 type VectorisedView struct {
@@ -92,4 +99,21 @@ func (vv *VectorisedView) ToView() View {
 // Size returns the size in bytes of the entire content stored in the vectorised view
 func (vv *VectorisedView) Size() int {
 	return vv.size
+}
+
+// Clone returns a clone of this VectorisedView
+// If the buffer argument is large enough to contain all the Views of this VectorisedView
+// the method will avoid allocations and use the buffer to store the Views of the clone
+func (vv *VectorisedView) Clone(buffer []View) VectorisedView {
+	var views []View
+	if len(buffer) >= len(vv.views) {
+		views = buffer[:len(vv.views)]
+	} else {
+		views = make([]View, len(vv.views))
+	}
+	for i, v := range vv.views {
+		views[i] = v
+	}
+
+	return VectorisedView{views: views, size: vv.size}
 }

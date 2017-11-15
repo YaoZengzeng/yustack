@@ -88,7 +88,7 @@ func (e *endpoint) WritePacket(r *types.Route, hdr *buffer.Prependable, payload 
 	})
 	ip.SetChecksum(^ip.CalculateChecksum())
 
-	return e.linkEp.WritePacket(r, hdr, payload, 0)
+	return e.linkEp.WritePacket(r, hdr, payload, ProtocolNumber)
 }
 
 // MaxHeaderLength returns the maximum length needed by ipv4 headers (and

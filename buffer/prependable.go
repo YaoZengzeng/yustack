@@ -44,3 +44,11 @@ func (p *Prependable) UsedLength() int {
 func (p *Prependable) UsedBytes() []byte {
 	return p.buf[p.usedIdx:]
 }
+
+// View returns a View of the backing buffer that contains all prepended
+// data so far
+func (p *Prependable) View() View {
+	v := p.buf
+	v.TrimFront(p.usedIdx)
+	return v
+}
