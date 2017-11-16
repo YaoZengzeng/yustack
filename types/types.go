@@ -28,3 +28,10 @@ type TransportDispatcher interface {
 	// transport protocol endpoint
 	DeliverTransportPacket(r *Route, protocol TransportProtocolNumber, vv *buffer.VectorisedView)
 }
+
+// Endpoint is the interface implemented by transport protocols (e.g., tcp, udp)
+// that exposes functionality link read, write, connect, etc to uses of the networking
+// stack
+type Endpoint interface {
+	
+}
