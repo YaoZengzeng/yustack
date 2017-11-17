@@ -55,4 +55,7 @@ type NetworkEndpoint interface {
 
 	// WritePacket writes the packet to the given destination address and protocol
 	WritePacket(r *Route, hdr *buffer.Prependable, payload buffer.View, protocol TransportProtocolNumber) error
+
+	// NicId returns the id of the Nic this endpoint belongs to
+	NicId() NicId
 }

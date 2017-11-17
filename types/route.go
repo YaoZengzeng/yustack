@@ -83,3 +83,8 @@ func MakeRoute(netProto NetworkProtocolNumber, localAddr, remoteAddr Address, ne
 		NetEp:			netEp,
 	}
 }
+
+// NicId returns the id of the Nic from which this route originates
+func (r *Route) NicId() NicId {
+	return r.NetEp.NicId()
+}

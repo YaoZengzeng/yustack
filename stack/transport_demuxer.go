@@ -110,6 +110,23 @@ func (d *transportDemuxer) deliverPacketLocked(r *types.Route, eps *transportEnd
 		return true
 	}
 
+	nid := id
+
+	// Try to find a match with the id minus the remote part
+	nid.RemoteAddress = ""
+	nid.RemotePort = 0
+	if ep := eps.endpoints[nid]; ep != nil {
+		ep.HandlePacket(r, id, vv)
+		return true
+	}
+
+	// Try to find a match with only the local port
+	nid.LocalAddress = ""
+	if ep := eps.endpoints[nid]; ep != nil {
+		ep.HandlePacket(r, id, vv)
+		return true
+	}
+
 	log.Printf("deliverPacketLocked: found transport endpoint failed\n")
 	return false
 }

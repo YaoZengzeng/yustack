@@ -9,7 +9,7 @@ import (
 var (
 	networkProtocols = make(map[string]types.NetworkProtocolFactory)
 
-	transportProtocols = make(map[string]types.TransportProtocolFactory)
+	transportProtocols = make(map[string]TransportProtocolFactory)
 
 	linkEpMux		sync.RWMutex
 
@@ -28,7 +28,7 @@ func RegisterNetworkProtocolFactory(name string, p types.NetworkProtocolFactory)
 // RegisterTransportProtocolFactory registers a new transport protocol factory
 // with the stack so that it becomes available to uses of the stack. This function
 // is intended to be called by init() functions of the protocols
-func RegisterTransportProtocolFactory(name string, p types.TransportProtocolFactory) {
+func RegisterTransportProtocolFactory(name string, p TransportProtocolFactory) {
 	transportProtocols[name] = p
 }
 

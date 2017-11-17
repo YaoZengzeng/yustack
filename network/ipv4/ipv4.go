@@ -69,6 +69,7 @@ func (e *endpoint) HandlePacket(r *types.Route, vv *buffer.VectorisedView) {
 	if p == header.ICMPv4ProtocolNumber {
 		e.handleICMP(r, vv)
 	}
+	e.dispatcher.DeliverTransportPacket(r, p, vv)
 }
 
 // WritePacket writes a packet to the given destination address and protocol
@@ -89,6 +90,11 @@ func (e *endpoint) WritePacket(r *types.Route, hdr *buffer.Prependable, payload 
 	ip.SetChecksum(^ip.CalculateChecksum())
 
 	return e.linkEp.WritePacket(r, hdr, payload, ProtocolNumber)
+}
+
+// NicId returns the Id of the Nic this endpoint belongs to
+func (e *endpoint) NicId() types.NicId {
+	return e.nicid
 }
 
 // MaxHeaderLength returns the maximum length needed by ipv4 headers (and

@@ -8,12 +8,14 @@ import (
 	"log"
 
 	"github.com/YaoZengzeng/yustack/types"
+	"github.com/YaoZengzeng/yustack/waiter"
+	"github.com/YaoZengzeng/yustack/ports"
 )
 
 // Stack is a networking stack, with all supported protocols, NICs, and route table.
 type Stack struct {
 	networkProtocols map[types.NetworkProtocolNumber]types.NetworkProtocol
-	transportProtocols map[types.TransportProtocolNumber]*types.TransportProtocolState
+	transportProtocols map[types.TransportProtocolNumber]*TransportProtocolState
 
 	demux			*transportDemuxer
 
@@ -23,6 +25,8 @@ type Stack struct {
 	// route is the route table passed in by the user via SetRouteTable(),
 	// it is used by FindRoute() to build a route for a specific destination
 	routeTable 		[]types.RouteEntry
+
+	*ports.PortManager
 }
 
 // New allocates a new networking stack with only the requested networking and
@@ -30,8 +34,9 @@ type Stack struct {
 func New(network []string, transport []string) *Stack {
 	s := &Stack{
 		networkProtocols: 	make(map[types.NetworkProtocolNumber]types.NetworkProtocol),
-		transportProtocols:	make(map[types.TransportProtocolNumber]*types.TransportProtocolState),
+		transportProtocols:	make(map[types.TransportProtocolNumber]*TransportProtocolState),
 		nics:			  	make(map[types.NicId]*Nic),
+		PortManager:		ports.NewPortManager(),
 	}
 
 	// Add specified network protocols.
@@ -51,7 +56,7 @@ func New(network []string, transport []string) *Stack {
 			continue
 		}
 		transProtocol := transProtocolFactory()
-		s.transportProtocols[transProtocol.Number()] = &types.TransportProtocolState{
+		s.transportProtocols[transProtocol.Number()] = &TransportProtocolState{
 			Protocol:	transProtocol,
 		}
 	}
@@ -182,4 +187,14 @@ func (s *Stack) FindRoute(id types.NicId, localAddress, remoteAddress types.Addr
 	}
 
 	return &types.Route{}, types.ErrNoRoute
+}
+
+// NewEndpoint creates a new transport layer endpoint of the given protocol
+func (s *Stack) NewEndpoint(transport types.TransportProtocolNumber, network types.NetworkProtocolNumber, waiterQueue *waiter.Queue) (types.Endpoint, error) {
+	t, ok := s.transportProtocols[transport]
+	if !ok {
+		return nil, types.ErrUnknownProtocol
+	}
+
+	return t.Protocol.NewEndpoint(s, network, waiterQueue)
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/YaoZengzeng/yustack/header"
 	"github.com/YaoZengzeng/yustack/buffer"
 	"github.com/YaoZengzeng/yustack/stack"
+	"github.com/YaoZengzeng/yustack/waiter"
 )
 
 // PingProtocolName is a pseudo transport protocol used to handle ping replies
@@ -158,6 +159,10 @@ type PingReply struct {
 
 type pingProtocol struct{}
 
+func (*pingProtocol) NewEndpoint(stack *stack.Stack, netProtocol types.NetworkProtocolNumber, waiterQueue *waiter.Queue) (types.Endpoint, error) {
+	return nil, types.ErrNotSupported
+}
+
 func (*pingProtocol) Number() types.TransportProtocolNumber {
 	return pingProtocolNumber
 }
@@ -172,7 +177,7 @@ func (*pingProtocol) ParsePorts(v buffer.View) (src, dst uint16, err error) {
 }
 
 func init() {
-	stack.RegisterTransportProtocolFactory(PingProtocolName, func() types.TransportProtocol {
+	stack.RegisterTransportProtocolFactory(PingProtocolName, func() stack.TransportProtocol {
 		return &pingProtocol{}
 	})
 }

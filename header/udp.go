@@ -49,3 +49,34 @@ func (b UDP) SourcePort() uint16 {
 func (b UDP) DestinationPort() uint16 {
 	return binary.BigEndian.Uint16(b[udpDstPort:])
 }
+
+// Length returns the "length" field of the udp header
+func (b UDP) Length() uint16 {
+	return binary.BigEndian.Uint16(b[udpLength:])
+}
+
+// SetChecksum sets the "checksum" field of the udp header
+func (b UDP) SetChecksum(checksum uint16) {
+	binary.BigEndian.PutUint16(b[udpChecksum:], checksum)
+}
+
+// CalculateChecksum calculates the checksum of the udp packet, given the total
+// length of the packet and the checksum of the network layer pseudo-header
+// (excluding the total length) and the checksum of the payload
+func (b UDP) CalculateChecksum(partialChecksum uint16, totalLength uint16) uint16 {
+	// Add the length portion of the checksum to the pseudo-checksum
+	tmp := make([]byte, 2)
+	binary.BigEndian.PutUint16(tmp, totalLength)
+	checksum := Checksum(tmp, partialChecksum)
+
+	// Calculate the rest of the checksum -> udp header
+	return Checksum(b[:UDPMinimumSize], checksum)
+}
+
+// Encode encodes all the fields of the udp header
+func (b UDP) Encode(u *UDPFields) {
+	binary.BigEndian.PutUint16(b[udpSrcPort:], u.SrcPort)
+	binary.BigEndian.PutUint16(b[udpDstPort:], u.DstPort)
+	binary.BigEndian.PutUint16(b[udpLength:], u.Length)
+	binary.BigEndian.PutUint16(b[udpChecksum:], u.Checkum)
+}

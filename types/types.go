@@ -33,5 +33,28 @@ type TransportDispatcher interface {
 // that exposes functionality link read, write, connect, etc to uses of the networking
 // stack
 type Endpoint interface {
-	
+	// Bind binds the endpoint to a specific local address and port
+	// Specifying a Nic is optional
+	Bind(address FullAddress) error
+
+	// Read reads data from the endpoint and optionally returns the sender
+	// This method does not block if there is no data pending
+	// It will also either return an error or data, never both
+	Read(*FullAddress) (buffer.View, error)
+}
+
+// FullAddress represents a full transport node address, as required by the
+// Connect() and Bind() methods
+type FullAddress struct {
+	// Nic is the Id of the Nic this address refers to
+	// This may not be used by all endpoint types
+	Nic NicId
+
+	// Address is the network address
+	Address Address
+
+	// Port is the transport port
+	//
+	// This may not be used by all endpoint types
+	Port uint16
 }

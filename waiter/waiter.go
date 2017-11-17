@@ -53,6 +53,27 @@ type Entry struct {
 	ilist.Entry
 }
 
+type channelCallback struct{}
+
+func (*channelCallback) Callback(e *Entry) {
+	ch := e.Context.(chan struct{})
+	ch <-struct{}{}
+}
+
+// NewChannelEntry initializes a new Entry that does a non-blocking write to a
+// struct{} channel when the callback is called. It returns the new Entry
+// instance and the channel being used
+//
+// If a channel isn't specified (i.e., if "c" is nil), then NewChannelEntry
+// allocates a new channel
+func NewChannelEntry(c chan struct{}) (Entry, chan struct{}) {
+	if c == nil {
+		c = make(chan struct{}, 1)
+	}
+
+	return Entry{Context: c, Callback: &channelCallback{}}, c
+}
+
 // Queue represents the wait queue where waiters can be and notifiers
 // can notify them when events happen
 //

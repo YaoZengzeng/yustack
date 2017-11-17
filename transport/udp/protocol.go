@@ -5,6 +5,7 @@ import (
 	"github.com/YaoZengzeng/yustack/header"
 	"github.com/YaoZengzeng/yustack/stack"
 	"github.com/YaoZengzeng/yustack/types"
+	"github.com/YaoZengzeng/yustack/waiter"
 )
 
 const (
@@ -33,8 +34,13 @@ func (*protocol) ParsePorts(v buffer.View) (src, dst uint16, err error) {
 	return h.SourcePort(), h.DestinationPort(), nil
 }
 
+// NewEndpoint creates a new udp endpoint
+func (*protocol) NewEndpoint(stack *stack.Stack, netProtocol types.NetworkProtocolNumber, waiterQueue *waiter.Queue) (types.Endpoint, error) {
+	return newEndpoint(stack, netProtocol, waiterQueue), nil
+}
+
 func init() {
-	stack.RegisterTransportProtocolFactory(ProtocolName, func() types.TransportProtocol {
+	stack.RegisterTransportProtocolFactory(ProtocolName, func() stack.TransportProtocol {
 		return &protocol{}
 	})
 }
