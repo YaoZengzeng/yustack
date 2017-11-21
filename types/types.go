@@ -41,6 +41,13 @@ type Endpoint interface {
 	// This method does not block if there is no data pending
 	// It will also either return an error or data, never both
 	Read(*FullAddress) (buffer.View, error)
+
+	// Write writes data to the endpoint's peer, or the provided address if
+	// one is specified. This method does not block if the data cannot be written
+	//
+	// Note that unlike io.Write.Write, it is not an error for Write to perform a
+	// partial write
+	Write(buffer.View, *FullAddress) (uintptr, error)
 }
 
 // FullAddress represents a full transport node address, as required by the

@@ -1,11 +1,13 @@
 package udp
 
 import (
+	"fmt"
 	"sync"
 	"log"
 	"strings"
 
 	"github.com/YaoZengzeng/yustack/stack"
+	"github.com/YaoZengzeng/yustack/checksum"
 	"github.com/YaoZengzeng/yustack/types"
 	"github.com/YaoZengzeng/yustack/waiter"
 	"github.com/YaoZengzeng/yustack/buffer"
@@ -46,6 +48,8 @@ type endpoint struct {
 	mu 			sync.RWMutex
 	id 			types.TransportEndpointId
 	state 		endpointState
+	bindAddr	types.Address
+	bindNicId	types.NicId
 }
 
 func newEndpoint(stack *stack.Stack, netProtocol types.NetworkProtocolNumber, waiterQueue *waiter.Queue) *endpoint {
@@ -127,6 +131,59 @@ func (e *endpoint) Bind(address types.FullAddress) error {
 	}
 
 	return nil
+}
+
+// Write writes data to the endpoint's peer. This method does not block if the data cannot
+// be written
+func (e *endpoint) Write(v buffer.View, to *types.FullAddress) (uintptr, error) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	if to == nil {
+		return 0, fmt.Errorf("udp.Write: to should not be nil")
+	}
+
+	nicid := to.Nic
+	netProto := e.netProtocol
+
+
+	// Find the route
+	route, err := e.stack.FindRoute(nicid, e.bindAddr, to.Address, netProto)
+	if err != nil {
+		log.Printf("udp.Write: FindRoute failed\n")
+		return 0, nil
+	}
+	dstPort := to.Port
+	sendUDP(route, v, e.id.LocalPort, dstPort)
+
+	return uintptr(len(v)), nil
+}
+
+// sendUDP sends an UDP segment via the provided network endpoint and under the
+// provided identity
+func sendUDP(r *types.Route, data buffer.View, localPort, remotePort uint16) error {
+	// Allocate a buffer for the UDP header
+	hdr := buffer.NewPrependable(header.UDPMinimumSize + int(r.MaxHeaderLength()))
+
+	// Initialize the header
+	udp := header.UDP(hdr.Prepend(header.UDPMinimumSize))
+
+	length := uint16(hdr.UsedLength())
+	xsum := r.PseudoHeaderChecksum(ProtocolNumber)
+	if data != nil {
+		length += uint16(len(data))
+		xsum = checksum.Checksum(data, xsum)
+	}
+
+	udp.Encode(&header.UDPFields{
+		SrcPort:	localPort,
+		DstPort:	remotePort,
+		Length:		length,
+	})
+
+	udp.SetChecksum(^udp.CalculateChecksum(xsum, length))
+
+	return r.WritePacket(&hdr, data, ProtocolNumber)
 }
 
 // HandlePacket is called by the stack when new packets arrives to this transport

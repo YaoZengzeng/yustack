@@ -1,4 +1,4 @@
-package header
+package checksum
 
 // Checksum calculates the checksum of the bytes in the given byte array
 func Checksum(buf []byte, initial uint16) uint16 {
@@ -15,6 +15,16 @@ func Checksum(buf []byte, initial uint16) uint16 {
 	}
 
 	return ChecksumCombine(uint16(v), uint16(v >> 16))
+}
+
+// PseudoHeaderChecksum calculates the pseudo header checksum for the
+// given destination protocol and network address, ignoring the length
+// field. Pseudo headers are needed by transport layer when calculating
+// their checksum
+func PseudoHeaderChecksum(protocol uint32, srcAddr string, dstAddr string) uint16 {
+	xsum := Checksum([]byte(srcAddr), 0)
+	xsum = Checksum([]byte(dstAddr), xsum)
+	return Checksum([]byte{0, uint8(protocol)}, xsum)
 }
 
 // ChecksumCombine combines the two uint16 to form their checksum. This is done

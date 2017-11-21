@@ -127,6 +127,5 @@ func (d *transportDemuxer) deliverPacketLocked(r *types.Route, eps *transportEnd
 		return true
 	}
 
-	log.Printf("deliverPacketLocked: found transport endpoint failed\n")
 	return false
 }

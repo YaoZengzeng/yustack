@@ -3,6 +3,7 @@ package header
 import (
 	"encoding/binary"
 
+	"github.com/YaoZengzeng/yustack/checksum"
 	"github.com/YaoZengzeng/yustack/types"
 )
 
@@ -14,7 +15,7 @@ const (
 	flagsFO		=	6
 	ttl 		=	8
 	protocol 	=	9
-	checksum	=	10
+	ipChecksum	=	10
 	srcAddr		=	12
 	dstAddr		=	16
 )
@@ -147,7 +148,7 @@ func (b IPv4) SetTotalLength(totalLength uint16) {
 
 // SetChecksum sets the checksum field of the ipv4 field header
 func (b IPv4) SetChecksum(v uint16) {
-	binary.BigEndian.PutUint16(b[checksum:], v)
+	binary.BigEndian.PutUint16(b[ipChecksum:], v)
 }
 
 // SetFlagsFragmentOffset sets the "flags" and "fragment offset" fields of the
@@ -159,5 +160,5 @@ func (b IPv4) SetFlagsFragmentOffset(flags uint8, offset uint16) {
 
 // CalculateChecksum calculates the checksum of the ipv4 header
 func (b IPv4) CalculateChecksum() uint16 {
-	return Checksum(b[:b.HeaderLength()], 0)
+	return checksum.Checksum(b[:b.HeaderLength()], 0)
 }

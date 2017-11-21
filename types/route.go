@@ -1,6 +1,7 @@
 package types
 
 import (
+	"github.com/YaoZengzeng/yustack/checksum"
 	"github.com/YaoZengzeng/yustack/buffer"
 )
 
@@ -82,6 +83,12 @@ func MakeRoute(netProto NetworkProtocolNumber, localAddr, remoteAddr Address, ne
 		RemoteAddress:	remoteAddr,
 		NetEp:			netEp,
 	}
+}
+
+// PseudoHeaderChecksum forwards the call to the network endpoint's
+// implementation
+func (r *Route) PseudoHeaderChecksum(protocol TransportProtocolNumber) uint16 {
+	return checksum.PseudoHeaderChecksum(uint32(protocol), string(r.LocalAddress), string(r.RemoteAddress))
 }
 
 // NicId returns the id of the Nic from which this route originates

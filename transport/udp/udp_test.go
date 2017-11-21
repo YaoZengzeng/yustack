@@ -1,11 +1,14 @@
 package udp_test
 
 import (
+	"net"
 	"bytes"
 	"time"
 	"math/rand"
 	"testing"
+	"sync"
 
+	"github.com/YaoZengzeng/yustack/checksum"
 	"github.com/YaoZengzeng/yustack/types"
 	"github.com/YaoZengzeng/yustack/buffer"
 	"github.com/YaoZengzeng/yustack/link/channel"
@@ -17,9 +20,9 @@ import (
 )
 
 const (
-	stackAddr = "\x0a\x00\x00\x01"
+	stackAddr = "\x0a\x01\x00\x02"
 	stackPort = 1234
-	testAddr  = "\x0a\x00\x00\x02"
+	testAddr  = "\x0a\x01\x00\x01"
 	testPort  = 4096
 
 	// defaultMTU is the MTU, in bytes, used throughout the tests, except
@@ -125,13 +128,13 @@ func (c *testContext) sendPacket(payload []byte, h *headers) {
 	})
 
 	// Calculate the UDP pseudo-header checksum
-	xsum := header.Checksum([]byte(testAddr), 0)
-	xsum = header.Checksum([]byte(stackAddr), xsum)
-	xsum = header.Checksum([]byte{0, uint8(udp.ProtocolNumber)}, xsum)
+	xsum := checksum.Checksum([]byte(testAddr), 0)
+	xsum = checksum.Checksum([]byte(stackAddr), xsum)
+	xsum = checksum.Checksum([]byte{0, uint8(udp.ProtocolNumber)}, xsum)
 
 	// Calculate the UDP checksum and set it
 	length := uint16(header.UDPMinimumSize + len(payload))
-	xsum = header.Checksum(payload, xsum)
+	xsum = checksum.Checksum(payload, xsum)
 	u.SetChecksum(^u.CalculateChecksum(xsum, length))
 
 	// Inject packet

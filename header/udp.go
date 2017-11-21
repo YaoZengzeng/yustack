@@ -3,6 +3,7 @@ package header
 import (
 	"encoding/binary"
 
+	"github.com/YaoZengzeng/yustack/checksum"
 	"github.com/YaoZengzeng/yustack/types"
 )
 
@@ -67,10 +68,10 @@ func (b UDP) CalculateChecksum(partialChecksum uint16, totalLength uint16) uint1
 	// Add the length portion of the checksum to the pseudo-checksum
 	tmp := make([]byte, 2)
 	binary.BigEndian.PutUint16(tmp, totalLength)
-	checksum := Checksum(tmp, partialChecksum)
+	c := checksum.Checksum(tmp, partialChecksum)
 
 	// Calculate the rest of the checksum -> udp header
-	return Checksum(b[:UDPMinimumSize], checksum)
+	return checksum.Checksum(b[:UDPMinimumSize], c)
 }
 
 // Encode encodes all the fields of the udp header

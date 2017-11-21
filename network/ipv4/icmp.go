@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 
 	"github.com/YaoZengzeng/yustack/types"
+	"github.com/YaoZengzeng/yustack/checksum"
 	"github.com/YaoZengzeng/yustack/header"
 	"github.com/YaoZengzeng/yustack/buffer"
 	"github.com/YaoZengzeng/yustack/stack"
@@ -38,7 +39,7 @@ func sendICMPv4(r *types.Route, typ header.ICMPv4Type, code byte, data buffer.Vi
 	icmpv4 := header.ICMPv4(hdr.Prepend(header.ICMPv4MinimumSize))
 	icmpv4.SetType(typ)
 	icmpv4.SetCode(code)
-	icmpv4.SetChecksum(^header.Checksum(icmpv4, header.Checksum(data, 0)))
+	icmpv4.SetChecksum(^checksum.Checksum(icmpv4, checksum.Checksum(data, 0)))
 
 	return r.WritePacket(&hdr, data, header.ICMPv4ProtocolNumber)
 }
