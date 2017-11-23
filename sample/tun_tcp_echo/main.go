@@ -75,8 +75,13 @@ func main() {
 
 	// Create tcp endpointm, bind it, then work as an echo server
 	var wq waiter.Queue
-	_, err = s.NewEndpoint(tcp.ProtocolNumber, proto, &wq)
+	ep, err := s.NewEndpoint(tcp.ProtocolNumber, proto, &wq)
 	if err != nil {
 		log.Fatalf("tun_udp_echo: NewEndpoint failed: %v\n", err)
+	}
+
+	err = ep.Bind(types.FullAddress{0, "", uint16(stackPort)})
+	if err != nil {
+		log.Fatalf("Bind failed: %v\n", err)
 	}
 }

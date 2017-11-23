@@ -6,6 +6,78 @@ import (
 	"github.com/YaoZengzeng/yustack/types"
 )
 
+const (
+	fakeTransNumber		types.TransportProtocolNumber	= 1
+	fakeNetworkNumber	types.NetworkProtocolNumber		= 2
+
+	fakeIPAddress 	= types.Address("\x08\x08\x08\x08")
+	fakeIPAddress1	= types.Address("\x08\x08\x08\x09")
+)
+
+func TestPortReservation(t *testing.T) {
+	pm := NewPortManager()
+	net := []types.NetworkProtocolNumber{fakeNetworkNumber}
+
+	for _, test := range []struct {
+		port 	uint16
+		ip 		types.Address
+		want 	error
+	}{
+		{
+			port: 	80,
+			ip:		fakeIPAddress,
+			want:	nil,
+		},
+		{
+			port:	80,
+			ip:		fakeIPAddress1,
+			want:	nil,
+		},
+		{
+			// N.B. Order of tests matters
+			port:	80,
+			ip:		anyIPAddress,
+			want:	types.ErrPortInUse,
+		},
+		{
+			port:	22,
+			ip:		anyIPAddress,
+			want:	nil,
+		},
+		{
+			port:	22,
+			ip:		fakeIPAddress,
+			want:	types.ErrPortInUse,
+		},
+		{
+			port:	0,
+			ip:		fakeIPAddress,
+			want:	nil,
+		},
+		{
+			port:	0,
+			ip:		fakeIPAddress,
+			want:	nil,
+		},
+	} {
+		gotPort, err := pm.ReservePort(net, fakeTransNumber, test.ip, test.port)
+		if err != test.want {
+			t.Fatalf("ReservePort(..., ..., %s, %d) = %v, want %v", test.ip, test.port, err, test.want)
+		}
+		if test.port == 0 && (gotPort == 0 || gotPort < firstEphemeral) {
+			t.Fatalf("ReservePort(..., ..., ..., 0) = %d, want port number >= %d to be picked", gotPort, firstEphemeral)
+		}
+	}
+
+	// Release port 22 from any IP address, then try to reserve fake IP
+	// address on 22
+	pm.ReleasePort(net, fakeTransNumber, anyIPAddress, 22)
+
+	if port, err := pm.ReservePort(net, fakeTransNumber, fakeIPAddress, 22); port != 22 || err != nil {
+		t.Fatalf("ReservePort(..., ..., ..., %d) = (port %d, err %v), want (22, nil); failed to reserve port after it should have been released", 22, port, err)
+	}
+}
+
 func TestPickEphemeralPort(t *testing.T) {
 	pm := NewPortManager()
 	customErr := &types.Error{}
