@@ -14,7 +14,7 @@ const (
 	dataOffset	= 12
 	tcpFlags	= 13
 	winSize		= 14
-	tchChecksum	= 16
+	tcpChecksum	= 16
 	urgentPtr	= 18	
 )
 
@@ -67,4 +67,28 @@ func (b TCP) SourcePort() uint16 {
 
 func (b TCP) DestinationPort() uint16 {
 	return binary.BigEndian.Uint16(b[dstPort:])
+}
+
+func (b TCP) SequenceNumber() uint32 {
+	return binary.BigEndian.Uint32(b[seqNum:])
+}
+
+func (b TCP) AckNumber() uint32 {
+	return binary.BigEndian.Uint32(b[ackNum:])
+}
+
+func (b TCP) DataOffset() uint8 {
+	return (b[dataOffset] >> 4) * 4
+}
+
+func (b TCP) Payload() []byte {
+	return b[b.DataOffset():]
+}
+
+func (b TCP) Flags() uint8 {
+	return b[tcpFlags]
+}
+
+func (b TCP) WindowSize() uint16 {
+	return binary.BigEndian.Uint16(b[winSize:])
 }

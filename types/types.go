@@ -48,6 +48,10 @@ type Endpoint interface {
 	// Note that unlike io.Write.Write, it is not an error for Write to perform a
 	// partial write
 	Write(buffer.View, *FullAddress) (uintptr, error)
+
+	// Listen puts the endpoint in "listen" mode, which allows it to connect
+	// newn connections
+	Listen(backlog int) error
 }
 
 // FullAddress represents a full transport node address, as required by the

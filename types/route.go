@@ -95,3 +95,10 @@ func (r *Route) PseudoHeaderChecksum(protocol TransportProtocolNumber) uint16 {
 func (r *Route) NicId() NicId {
 	return r.NetEp.NicId()
 }
+
+// Clone clone a route such that the original one can be released and the new
+// one will remain valid
+func (r *Route) Clone() Route {
+	// Just walk around for simplicity
+	return *r
+}

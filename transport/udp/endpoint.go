@@ -254,3 +254,8 @@ func (e *endpoint) Read(address *types.FullAddress) (buffer.View, error) {
 
 	return p.data.ToView(), nil
 }
+
+// Listen is not supported by UDP, it just fails
+func (*endpoint) Listen(int) error {
+	return types.ErrNotSupported
+}

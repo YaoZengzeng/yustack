@@ -35,7 +35,7 @@ func (v Value) InWindow(first Value, size Size) bool {
 }
 
 // Overlap checks if the window [a, a + b) overlaps with the window [x, x + y)
-func Overlap(a Value, b Size, x Value, y Size) {
+func Overlap(a Value, b Size, x Value, y Size) bool {
 	return a.LessThan(x.Add(y)) && x.LessThan(a.Add(b))
 }
 

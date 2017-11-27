@@ -84,4 +84,12 @@ func main() {
 	if err != nil {
 		log.Fatalf("Bind failed: %v\n", err)
 	}
+
+	err = ep.Listen(10);
+	if err != nil {
+		log.Fatalf("Listen failed: %v\n", err)
+	}
+
+	select {}
 }
+
