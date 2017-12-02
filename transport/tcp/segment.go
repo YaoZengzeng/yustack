@@ -37,8 +37,8 @@ type segment struct {
 	window         seqnum.Size
 
 	// parsedOptions stores the parsed values from the options in the segment.
-	// parsedOptions header.TCPOptions
-	// options       []byte
+	parsedOptions header.TCPOptions
+	options       []byte
 }
 
 func newSegment(r *types.Route, id types.TransportEndpointId, vv *buffer.VectorisedView) *segment {
@@ -73,6 +73,8 @@ func (s *segment) parse() bool {
 		return false
 	}
 
+	s.options = []byte(h[header.TCPMinimumSize : offset])
+	s.parsedOptions = header.ParseTCPOptions(s.options)
 	s.data.TrimFront(offset)
 
 	s.sequenceNumber = seqnum.Value(h.SequenceNumber())
@@ -81,4 +83,8 @@ func (s *segment) parse() bool {
 	s.window = seqnum.Size(h.WindowSize())
 
 	return true
+}
+
+func (s *segment) flagIsSet(flag uint8) bool {
+	return (s.flags & flag) != 0
 }

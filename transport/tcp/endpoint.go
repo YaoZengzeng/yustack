@@ -86,6 +86,11 @@ type endpoint struct {
 	// send newly accepted connections to the endpoint so that they can be
 	// read by Accept() calls
 	acceptedChan chan *endpoint
+
+	// The following are only used from the protocol goroutine, and
+	// therefore don't need locks to protect them
+	rcv *receiver
+	snd *sender
 }
 
 func newEndpoint(stack *stack.Stack, netProtocol types.NetworkProtocolNumber, waiterQueue *waiter.Queue) *endpoint {

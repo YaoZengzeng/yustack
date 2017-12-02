@@ -1,5 +1,9 @@
 package tcp
 
+import (
+	"github.com/YaoZengzeng/yustack/header"
+)
+
 // maxSegmentsPerWake is the maximum number of segments to process in the main
 // protocol goroutine per wake-up. Yielding [after this number of segments are
 // processed] allows other events to be processed as well (e.g., timeouts,
@@ -12,3 +16,12 @@ const (
 	wakerForNewSegment
 	wakerForResend
 )
+
+func parseSynSegmentOptions(s *segment) header.TCPSynOptions {
+	synOpts := header.ParseSynOptions(s.options, s.flagIsSet(flagAck))
+	if synOpts.TS {
+		s.parsedOptions.TSVal = synOpts.TSVal
+		s.parsedOptions.TSEcr = synOpts.TSEcr
+	}
+	return synOpts
+}
