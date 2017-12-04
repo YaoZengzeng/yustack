@@ -150,9 +150,30 @@ func blockingReadv(fd int, iovecs []syscall.Iovec) (int, error) {
 	}
 }
 
+// NonBlockingWrite writes the given buffer to a file descriptor. It fails if
+// partial data is written
+func NonBlockingWrite(fd int, buf []byte) error {
+	var ptr unsafe.Pointer
+	if len(buf) > 0 {
+		ptr = unsafe.Pointer(&buf[0])
+	}
+
+	_, _, e := syscall.RawSyscall(syscall.SYS_WRITE, uintptr(fd), uintptr(ptr), uintptr(len(buf)))
+	if e != 0 {
+		return TranslateErrno(e)
+	}
+
+	return nil
+}
+
 // NonBlockingWrite2 writes up to two byte slices to a file descriptor in a
 // single syscall. It fails if partial data is written
 func nonBlockingWrite2(fd int, b1, b2 []byte) error {
+	// If there is no second buffer, issue a regular write
+	if len(b2) == 0 {
+		return NonBlockingWrite(fd, b1)
+	}
+
 	// We have tow buffers. Build the iovec that represents them and issue
 	// a writev syscall
 	iovec := [...]syscall.Iovec{

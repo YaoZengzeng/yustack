@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 
 	"github.com/YaoZengzeng/yustack/types"
+	"github.com/YaoZengzeng/yustack/checksum"
 )
 
 const (
@@ -141,6 +142,39 @@ func (b TCP) Flags() uint8 {
 
 func (b TCP) WindowSize() uint16 {
 	return binary.BigEndian.Uint16(b[winSize:])
+}
+
+// SetChecksum sets the checksum field of the tcp header
+func (b TCP) SetChecksum(checksum uint16) {
+	binary.BigEndian.PutUint16(b[tcpChecksum:], checksum)
+}
+
+// CalculateChecksum calculates the checksum of the tcp segment given
+// the totalLen and partialChecksum
+// totalLen is the total length of the segment
+// partialChecksum is the checksum of the network-layer pseudo-header
+// (excluding the total length) and the checksum of the segment data
+func (b TCP) CalculateChecksum(partialChecksum uint16, totalLen uint16) uint16 {
+	// Add the length portion of the checksum to the pseudo-checksum
+	tmp := make([]byte, 2)
+	binary.BigEndian.PutUint16(tmp, totalLen)
+	cksm := checksum.Checksum(tmp, partialChecksum)
+
+	// Calculate the rest of the checksum
+	return checksum.Checksum(b[:b.DataOffset()], cksm)
+}
+
+// Encode encodes all the fields of the tcp header
+func (b TCP) Encode(t *TCPFields) {
+	binary.BigEndian.PutUint32(b[seqNum:], t.SeqNum)
+	binary.BigEndian.PutUint32(b[ackNum:], t.AckNum)
+	b[tcpFlags] = t.Flags
+	binary.BigEndian.PutUint16(b[winSize:], t.WindowSize)
+	binary.BigEndian.PutUint16(b[srcPort:], t.SrcPort)
+	binary.BigEndian.PutUint16(b[dstPort:], t.DstPort)
+	b[dataOffset] = (t.DataOffset / 4) << 4
+	binary.BigEndian.PutUint16(b[tcpChecksum:], t.Checksum)
+	binary.BigEndian.PutUint16(b[urgentPtr:], t.UrgentPointer)
 }
 
 // ParseSynOptions parses the options received in a SYN segment and returns the

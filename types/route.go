@@ -91,6 +91,11 @@ func (r *Route) PseudoHeaderChecksum(protocol TransportProtocolNumber) uint16 {
 	return checksum.PseudoHeaderChecksum(uint32(protocol), string(r.LocalAddress), string(r.RemoteAddress))
 }
 
+// MTU returns the MTU of the underlying network endpoint
+func (r *Route) MTU() uint32 {
+	return r.NetEp.MTU()
+}
+
 // NicId returns the id of the Nic from which this route originates
 func (r *Route) NicId() NicId {
 	return r.NetEp.NicId()

@@ -20,6 +20,10 @@ const (
 
 	// ProtocolNumber is the ipv4 protocol number.
 	ProtocolNumber = header.IPv4ProtocolNumber
+
+	// maxTotalSize is the maximum size that can be encoded in the 16-bit
+	// TotalLength field of the ipv4 header
+	maxTotalSize = 0xfff
 )
 
 type address [header.IPv4AddressSize]byte
@@ -101,6 +105,16 @@ func (e *endpoint) NicId() types.NicId {
 // underlying protocols)
 func (e *endpoint) MaxHeaderLength() uint16 {
 	return e.linkEp.MaxHeaderLength() + header.IPv4MinimumSize
+}
+
+// MTU implements types.NetworkEndpoint.MTU. It returns the link-layer MTU minus
+// the network layer max header length
+func (e *endpoint) MTU() uint32 {
+	lmtu := e.linkEp.MTU()
+	if lmtu > maxTotalSize {
+		lmtu = maxTotalSize
+	}
+	return lmtu - uint32(e.MaxHeaderLength())
 }
 
 type protocol struct{}

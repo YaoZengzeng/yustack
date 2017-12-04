@@ -144,6 +144,7 @@ func (l *listenContext) createConnectedEndpoint(s *segment, iss seqnum.Value, ir
 	n := newEndpoint(l.stack, netProtocol, nil)
 	n.id = s.id
 	n.boundNicId = s.route.NicId()
+	n.route = s.route.Clone()
 	n.effectiveNetProtocols = []types.NetworkProtocolNumber{netProtocol}
 
 	// Register new endpoint so that packets are routed to it
@@ -173,6 +174,20 @@ func (l *listenContext) createEndpointAndPerformHandshake(s *segment, opts *head
 	cookie := l.createCookie(s.id, irs, encodeMSS(opts.MSS))
 	ep, err := l.createConnectedEndpoint(s, cookie, irs, opts)
 	if err != nil {
+		return nil, err
+	}
+
+	// Perform the 3-way handshake
+	h, err := newHandshake(ep, l.rcvWnd)
+	if err != nil {
+		log.Printf("createEndpointAndPerformHandshake: newHandshake failed: %v\n", err)
+		return nil, err
+	}
+	log.Printf("createEndpointAndPerformHandshake: newHandshake succeeded\n")
+
+	h.resetToSynRcvd(cookie, irs, opts)
+	if err := h.execute(); err != nil {
+		log.Printf("createEndpointAndPerformHandshake: handshake execute failed: %v\n", err)
 		return nil, err
 	}
 

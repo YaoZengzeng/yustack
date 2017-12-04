@@ -40,6 +40,11 @@ type NetworkEndpointId struct {
 // NetworkEndpoint is the interface that needs to be implemented by endpoints
 // of network layer protocols (eg., ipv4)
 type NetworkEndpoint interface {
+	// MTU is the maximum transmission unit for this endpoint. This is
+	// generally calculated as the MTU of the underlying data link endpoint
+	// minus the network endpoint max header length
+	MTU() uint32
+
 	// HandlePacket is called by the link layer when new packets arrive to
 	// this network endpoint
 	HandlePacket(r *Route, vv *buffer.VectorisedView)

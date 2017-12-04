@@ -46,6 +46,7 @@ type endpoint struct {
 	isPortReserved	bool
 	isRegistered	bool
 	boundNicId		types.NicId
+	route 			types.Route
 
 	// effectiveNetProtocols contains the network protocols actually in use. In most
 	// cases it will only contain "netProtocol", but in cases like IPv6 endpoints
