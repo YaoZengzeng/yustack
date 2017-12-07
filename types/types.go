@@ -2,6 +2,7 @@ package types
 
 import (
 	"github.com/YaoZengzeng/yustack/buffer"
+	"github.com/YaoZengzeng/yustack/waiter"
 )
 
 // Address is a byte slice cast as a string that represents the address of a
@@ -52,6 +53,13 @@ type Endpoint interface {
 	// Listen puts the endpoint in "listen" mode, which allows it to connect
 	// newn connections
 	Listen(backlog int) error
+
+	// Accept returns a new endpoint if a peer has established a connection
+	// to and endpoint previously set to listen mode. This method does not
+	// block if no new connections are available.
+	//
+	// The returned Queue is the wait queue for the newly created endpoint
+	Accept() (Endpoint, *waiter.Queue, error)
 }
 
 // FullAddress represents a full transport node address, as required by the

@@ -296,3 +296,72 @@ func parseSynSegmentOptions(s *segment) header.TCPSynOptions {
 	}
 	return synOpts
 }
+
+// handleSegments pulls segments from the queue and process them. It returns
+// true if the protocol loop should continue, false otherwise
+func (e *endpoint) handleSegments() bool {
+	for i := 0; i < maxSegmentsPerWake; i++ {
+		s := e.segmentQueue.dequeue()
+		if s == nil {
+			break
+		}
+
+		if s.flagIsSet(flagRst) {
+			log.Printf("handleSegments: RST segment can not be handled now")
+			return false	
+		} else if s.flagIsSet(flagAck) {
+			// RFC 793, page 41 states that "once in the ESTABLISHED
+			// state all segments must carry current acknowledgement
+			// information"
+			e.rcv.handleRcvdSegment(s)
+		}
+	}
+
+	return true
+}
+
+// protocolMainLoop is the main loop of the TCP protocol. It runs in its own
+// goroutine and is responsible for sending segments and handling received
+// segments
+func (e *endpoint) protocolMainLoop(passive bool) error {
+	// Tell waiters that the endpoint is connected and writable
+	e.mu.Lock()
+	e.state = stateConnected
+	e.mu.Unlock()
+
+	// Set up the functions that will be called when the main protocol loop
+	// wakes up
+	funcs := []struct {
+		w *sleep.Waker
+		f func() bool
+	}{
+		{
+			w: &e.newSegmentWaker,
+			f: e.handleSegments,
+		},
+	}
+
+	// Initialize the sleeper based on the wakers in funcs
+	s := sleep.Sleeper{}
+	for i := range funcs {
+		s.AddWaker(funcs[i].w, i)
+	}
+
+	// Main loop. Handle segments until both send and receive ends of the
+	// connection have completed
+	for !e.rcv.closed || !e.snd.closed || e.snd.sndUna != e.snd.sndNxtList {
+		e.workMu.Unlock()
+		v, _ := s.Fetch(true)
+		e.workMu.Lock()
+		if !funcs[v].f() {
+			return nil
+		}
+	}
+
+	// Mark endpoint as closed
+	e.mu.Lock()
+	e.state = stateClosed
+	e.mu.Unlock()
+
+	return nil
+}

@@ -259,3 +259,8 @@ func (e *endpoint) Read(address *types.FullAddress) (buffer.View, error) {
 func (*endpoint) Listen(int) error {
 	return types.ErrNotSupported
 }
+
+// Accept is not supported by UDP, it just fails
+func (*endpoint) Accept() (types.Endpoint, *waiter.Queue, error) {
+	return nil, nil, types.ErrNotSupported
+}

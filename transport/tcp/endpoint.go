@@ -10,6 +10,7 @@ import (
 	"github.com/YaoZengzeng/yustack/stack"
 	"github.com/YaoZengzeng/yustack/types"
 	"github.com/YaoZengzeng/yustack/waiter"
+	"github.com/YaoZengzeng/yustack/tmutex"
 )
 
 type endpointState int
@@ -33,6 +34,11 @@ const DefaultBufferSize = 208 * 1024
 // synchronized. The protocol implementation, however, runs in a single
 // goroutine
 type endpoint struct {
+	// workMu is used to arbitrate which goroutine may perform protocol
+	// work. Only the main protocol goroutine is expected to call Lock()
+	// on it, but other goroutines (e.g., send) may call TryLock() to eagerly
+	// perform work without having to wait for the main one to wake up
+	workMu	tmutex.Mutex
 	// The following fields are initialized at creation time and do not
 	// change throughout the lifetime of the endpoint
 	stack 		*stack.Stack
@@ -102,6 +108,8 @@ func newEndpoint(stack *stack.Stack, netProtocol types.NetworkProtocolNumber, wa
 		rcvBufSize:		DefaultBufferSize,
 	}
 	e.segmentQueue.setLimit(2 * e.rcvBufSize)
+	e.workMu.Init()
+	e.workMu.Lock()
 
 	return e
 }
@@ -181,9 +189,96 @@ func (e *endpoint) Listen(backlog int) error {
 	return nil
 }
 
+// startAcceptedLoop sets up required state and starts a goroutine with the
+// main loop for accepted connections
+func (e *endpoint) startAcceptedLoop(waiterQueue *waiter.Queue) {
+	e.waiterQueue = waiterQueue
+	e.workerRunning = true
+	go e.protocolMainLoop(true)
+}
+
+// Accept returns a new endpoint if a peer has established a connection
+// to an endpoint previously set to listen mode
+func (e *endpoint) Accept() (types.Endpoint, *waiter.Queue, error) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	// Endpoint must be in listen state before it can accept connections
+	if e.state != stateListen {
+		return nil, nil, types.ErrInvalidEndpointState
+	}
+
+	// Get the new accepted endpoint
+	var n *endpoint
+	select {
+	case n = <-e.acceptedChan:
+	default:
+		return nil, nil, types.ErrWouldBlock	
+	}
+
+	// Start the protocol goroutine
+	wq := &waiter.Queue{}
+	n.startAcceptedLoop(wq)
+
+	return n, wq, nil
+}
+
 // Read reads data from the endpoint
 func (e *endpoint) Read(*types.FullAddress) (buffer.View, error) {
-	return nil, nil
+	e.mu.RLock()
+
+	// The endpoint can be read if it's connected, or if it's already closed
+	// but has some pending unread data
+	if s := e.state; s != stateConnected && s != stateClosed {
+		e.mu.RUnlock()
+		return buffer.View{}, types.ErrInvalidEndpointState
+	}
+
+	e.rcvListMu.Lock()
+	v, err := e.readLocked()
+	e.rcvListMu.Unlock()
+
+	e.mu.RUnlock()
+
+	return v, err
+}
+
+// readyToRead is called by the protocol goroutine when a new segment is ready
+// to be read, or when the connection is closed for receiving (in which case
+// s will be nil)
+func (e *endpoint) readyToRead(s *segment) {
+	e.rcvListMu.Lock()
+	if s != nil {
+		e.rcvBufUsed += s.data.Size()
+		e.rcvList.PushBack(s)
+	} else {
+		e.rcvClosed = true
+	}
+	e.rcvListMu.Unlock()
+
+	e.waiterQueue.Notify(waiter.EventIn)
+}
+
+func (e *endpoint) readLocked() (buffer.View, error) {
+	if e.rcvBufUsed == 0 {
+		if e.rcvClosed || e.state != stateConnected {
+			return buffer.View{}, types.ErrClosedForReceive
+		}
+		return buffer.View{}, types.ErrWouldBlock
+	}
+
+	s := e.rcvList.Front()
+	views := s.data.Views()
+	v := views[s.viewToDeliver]
+	s.viewToDeliver++
+
+	if s.viewToDeliver >= len(views) {
+		e.rcvList.Remove(s)
+	}
+
+	e.rcvBufUsed -= len(v)
+
+	return v, nil
 }
 
 // Write writes data to the endpoint's peer

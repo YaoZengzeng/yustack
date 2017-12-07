@@ -45,6 +45,11 @@ func NewVectorisedView(views []View, size int) VectorisedView {
 	return VectorisedView{views: views, size: size}
 }
 
+// Views returns the slice containing the all views
+func (vv *VectorisedView) Views() []View {
+	return vv.views
+}
+
 // SetSize unsafely sets the size of the VectorisedView
 func (vv *VectorisedView) SetSize(size int) {
 	vv.size = size

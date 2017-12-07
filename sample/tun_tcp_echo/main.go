@@ -23,6 +23,28 @@ const (
 	nicId = 1
 )
 
+func echo(wq *waiter.Queue, ep types.Endpoint) {
+	// Create wait queue entry that notifies a channel
+	waitEntry, notifyCh := waiter.NewChannelEntry(nil)
+
+	wq.EventRegister(&waitEntry, waiter.EventIn)
+	defer wq.EventUnregister(&waitEntry)
+
+	for {
+		v, err := ep.Read(nil)
+		if err != nil {
+			if err == types.ErrWouldBlock {
+				<-notifyCh
+				continue
+			}
+
+			return
+		}
+		
+		log.Printf("Read succeeds: %s", string(v))
+	}
+}
+
 func main() {
 	if len(os.Args) != 3 {
 		log.Fatal("Usage: ", os.Args[0], "<tun-device> <local-address>")
@@ -90,6 +112,24 @@ func main() {
 		log.Fatalf("Listen failed: %v\n", err)
 	}
 
-	select {}
+	// Wait for connections to appear
+	waitEntry, notifyCh := waiter.NewChannelEntry(nil)
+	wq.EventRegister(&waitEntry, waiter.EventIn)
+	defer wq.EventUnregister(&waitEntry)
+
+	for {
+		n, wq, err := ep.Accept()
+		if err != nil {
+			if err == types.ErrWouldBlock {
+				<-notifyCh
+				continue
+			}
+
+			log.Fatalf("Accept() failed: %v", err)
+		}
+
+		go echo(wq, n)
+	}
+
 }
 
