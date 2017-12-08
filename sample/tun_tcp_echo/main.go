@@ -40,8 +40,9 @@ func echo(wq *waiter.Queue, ep types.Endpoint) {
 
 			return
 		}
+		log.Printf("Read %s\n", string(v))
 		
-		log.Printf("Read succeeds: %s", string(v))
+		ep.Write(v, nil)
 	}
 }
 

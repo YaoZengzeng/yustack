@@ -1,10 +1,12 @@
 package tcp
 
 import (
+	"log"
 	"time"
 
 	"github.com/YaoZengzeng/yustack/seqnum"
 	"github.com/YaoZengzeng/yustack/sleep"
+	"github.com/YaoZengzeng/yustack/buffer"
 )
 
 // sender holds the state necessary to send TCP segments
@@ -103,4 +105,63 @@ func newSender(ep *endpoint, iss, irs seqnum.Value, sndWnd seqnum.Size, mss uint
 	}
 
 	return s
+}
+
+// sendData sends new data segments. It is called when data becomes available or
+// when the send window opens up
+func (s *sender) sendData() {
+	// TODO: We currently don't merge multiple send buffers
+	// into one segment if they happen to fit. We should do that
+	// eventually
+	log.Printf("I'm in sendData\n")
+	var seg *segment
+	end := s.sndUna.Add(s.sndWnd)
+	for seg = s.writeNext; seg != nil; seg = seg.Next() {
+		// We abuse the flags field to determine if we have already
+		// assigned a sequence number to this segment
+		if seg.flags == 0 {
+			seg.sequenceNumber = s.sndNxt
+			seg.flags = flagAck
+		}
+
+		var segEnd seqnum.Value
+		if seg.data.Size() == 0 {
+			log.Printf("sendData: segment length is zero, we're not ready to send FIN segment\n")
+			return
+		} else {
+			// We're sending a non-FIN segment
+			if !seg.sequenceNumber.LessThan(end) {
+				break
+			}
+
+			available := int(seg.sequenceNumber.Size(end))
+			if seg.data.Size() > available {
+				log.Printf("the length of segment is longer than available window size\n")
+				return
+			}
+
+			segEnd = seg.sequenceNumber.Add(seqnum.Size(seg.data.Size()))
+		}
+
+		s.sendSegment(&seg.data, seg.flags, seg.sequenceNumber)
+
+		// Update sndNxt if we actually sent data (as opposed to
+		// retransmitting some previously sent data)
+		if s.sndNxt.LessThan(segEnd) {
+			s.sndNxt = segEnd
+		}
+	}
+}
+
+// sendSegment sends a new segment containing the given payload, flags and
+// sequence number
+func (s *sender) sendSegment(data *buffer.VectorisedView, flags byte, seq seqnum.Value) error {
+	log.Printf("I'm in sendSegment\n")
+	rcvNxt, rcvWnd := s.ep.rcv.getSendParams()
+
+	if len(data.Views()) > 1 {
+		panic("send path does not support views with multiple buffers")
+	}
+
+	return s.ep.sendRaw(data.First(), flags, seq, rcvNxt, rcvWnd)
 }

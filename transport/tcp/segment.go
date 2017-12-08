@@ -51,6 +51,16 @@ func newSegment(r *types.Route, id types.TransportEndpointId, vv *buffer.Vectori
 	return s
 }
 
+func newSegmentFromView(r *types.Route, id types.TransportEndpointId, v buffer.View) *segment {
+	s := &segment{
+		id:		id,
+		route:	r.Clone(),
+	}
+	s.views[0] = v
+	s.data = buffer.NewVectorisedView(s.views[:1], len(v))
+	return s
+}
+
 // parse populates the sequence & ack numbers, flags, and window fields of the
 // segment from the TCP header stored in the data. It then updates the view to
 // skip the data. Returns boolean indicating if the parsing was successful.

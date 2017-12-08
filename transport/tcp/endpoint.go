@@ -81,6 +81,20 @@ type endpoint struct {
 	// and dropped when it is
 	segmentQueue segmentQueue
 
+	// The following fields are used to manage the send buffer. When segments
+	// are ready to be sent, they are added to sndQueue and the protocol goroutine
+	// is signaled via sndWaker
+	//
+	// When the send side is closed, the protocol goroutine is notified via sndCloseWaker
+	// and sndBufSize is set to -1
+	sndBufMu 		sync.Mutex
+	sndBufSize		int
+	sndBufUsed		int
+	sndBufInQueue	seqnum.Size
+	sndQueue 		segmentList
+	sndWaker 		sleep.Waker
+	sndCloseWaker 	sleep.Waker
+
 	// newSegmentWaker is used to indicate to the protocol goroutine that
 	// it needs to wake up and handle new segments queued to it.
 	newSegmentWaker sleep.Waker
@@ -106,6 +120,7 @@ func newEndpoint(stack *stack.Stack, netProtocol types.NetworkProtocolNumber, wa
 		netProtocol:	netProtocol,
 		waiterQueue:	waiterQueue,
 		rcvBufSize:		DefaultBufferSize,
+		sndBufSize:		DefaultBufferSize,
 	}
 	e.segmentQueue.setLimit(2 * e.rcvBufSize)
 	e.workMu.Init()
@@ -283,10 +298,61 @@ func (e *endpoint) readLocked() (buffer.View, error) {
 
 // Write writes data to the endpoint's peer
 func (e *endpoint) Write(v buffer.View, to *types.FullAddress) (uintptr, error) {
-	return 0, nil
+	// Linux completely ignores any address passed to sendto(2) for TCP sockets
+	// (without the MSG_FASTOPEN flag)
+
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	// The endpoint cannot be written to if it's not connected
+	if e.state != stateConnected {
+		log.Printf("Write: state is not connected\n")
+		return 0, types.ErrClosedForSend
+	}
+
+	// Nothing to do if the buffer is empty
+	if len(v) == 0 {
+		return 0, nil
+	}
+
+	e.sndBufMu.Lock()
+	// Check if the connection has already been closed for sends
+	if e.sndBufSize < 0 {
+		e.sndBufMu.Unlock()
+		log.Printf("Write: send buffer size < 0")
+		return 0, types.ErrClosedForSend
+	}
+
+	// Check if we're already over the limit
+	avail := e.sndBufSize - e.sndBufUsed
+	if avail <= 0 {
+		e.sndBufMu.Unlock()
+		return 0, types.ErrWouldBlock
+	}
+
+	l := len(v)
+	s := newSegmentFromView(&e.route, e.id, v)
+
+	// Add data to the send queue
+	e.sndBufUsed += l
+	e.sndBufInQueue += seqnum.Size(l)
+	e.sndQueue.PushBack(s)
+
+	e.sndBufMu.Unlock()
+
+	if e.workMu.TryLock() {
+		// Do the work inline
+		log.Printf("Write through handleWrite\n")
+		e.handleWrite()
+		e.workMu.Unlock()
+	} else {
+		log.Printf("Write through sndWaker\n")
+		// Let the protocol goroutine do the work
+		e.sndWaker.Assert()
+	}
+
+	return uintptr(l), nil
 }
-
-
 
 // HandlePacket is called by the stack when new packets arrive to this transport
 // endpoint.

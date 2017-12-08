@@ -336,6 +336,10 @@ func (e *endpoint) protocolMainLoop(passive bool) error {
 		f func() bool
 	}{
 		{
+			w: &e.sndWaker,
+			f: e.handleWrite,
+		},
+		{
 			w: &e.newSegmentWaker,
 			f: e.handleSegments,
 		},
@@ -364,4 +368,71 @@ func (e *endpoint) protocolMainLoop(passive bool) error {
 	e.mu.Unlock()
 
 	return nil
+}
+
+func (e *endpoint) handleWrite() bool {
+	log.Printf("I'm in handleWrite\n")
+	// Move packets from send queue to send list. The queue is accessible
+	// from other goroutines and protected by the send mutex, while the send
+	// list is only accessible from the handler goroutine, so it needs no mutexes
+	e.sndBufMu.Lock()
+
+	first := e.sndQueue.Front()
+	if first != nil {
+		e.snd.writeList.PushBackList(&e.sndQueue)
+		e.snd.sndNxtList.UpdateForward(e.sndBufInQueue)
+		e.sndBufInQueue = 0
+	}
+
+	e.sndBufMu.Unlock()
+
+	// Initialize the next segment to write if it's currently nil
+	if e.snd.writeNext == nil {
+		e.snd.writeNext = first
+	}
+
+	// Push out any new packets
+	e.snd.sendData()
+
+	return true
+}
+
+// sendTCP sends a TCP segment via the provided network endpoint and under the
+// provided identity.
+func sendTCP(r *types.Route, id types.TransportEndpointId, data buffer.View, flags byte, seq, ack seqnum.Value, rcvWnd seqnum.Size) error {
+	log.Printf("I'm in sendTCP\n")
+	// Allocate a buffer for the TCP header.
+	hdr := buffer.NewPrependable(header.TCPMinimumSize + int(r.MaxHeaderLength()))
+
+	if rcvWnd > 0xffff {
+		rcvWnd = 0xffff
+	}
+
+	// Initialize the header.
+	tcp := header.TCP(hdr.Prepend(header.TCPMinimumSize))
+	tcp.Encode(&header.TCPFields{
+		SrcPort:    id.LocalPort,
+		DstPort:    id.RemotePort,
+		SeqNum:     uint32(seq),
+		AckNum:     uint32(ack),
+		DataOffset: header.TCPMinimumSize,
+		Flags:      flags,
+		WindowSize: uint16(rcvWnd),
+	})
+
+	length := uint16(hdr.UsedLength())
+	xsum := r.PseudoHeaderChecksum(ProtocolNumber)
+	if data != nil {
+		length += uint16(len(data))
+		xsum = checksum.Checksum(data, xsum)
+	}
+
+	tcp.SetChecksum(^tcp.CalculateChecksum(xsum, length))
+
+	return r.WritePacket(&hdr, data, ProtocolNumber)
+}
+
+// sendRaw sends a TCP segment to the endpoint's peer
+func (e *endpoint) sendRaw(data buffer.View, flags byte, seq, ack seqnum.Value, rcvWnd seqnum.Size) error {
+	return sendTCP(&e.route, e.id, data, flags, seq, ack, rcvWnd)
 }

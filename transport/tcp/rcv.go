@@ -82,6 +82,19 @@ func (r *receiver) consumeSegment(s *segment, segSeq seqnum.Value, segLen seqnum
 	return  true
 }
 
+// getSendParams returns the parameters needed by the sender when building
+// segments to send
+func (r *receiver) getSendParams() (rcvNxt seqnum.Value, rcvWnd seqnum.Size) {
+	// Calculaten the window size based on the current buffer size
+	n := r.ep.receiveBufferAvailable()
+	acc := r.rcvNxt.Add(seqnum.Size(n))
+	if r.rcvAcc.LessThan(acc) {
+		r.rcvAcc = acc
+	}
+
+	return r.rcvNxt, r.rcvNxt.Size(r.rcvAcc) >> r.rcvWndScale
+}
+
 // handleRcvdSegment handles TCP segments directed at the connection managed by
 // r as they arrive. It is called by the protocol main loop
 func (r *receiver) handleRcvdSegment(s *segment) {
