@@ -354,6 +354,78 @@ func (e *endpoint) Write(v buffer.View, to *types.FullAddress) (uintptr, error) 
 	return uintptr(l), nil
 }
 
+// Connect connects the endpoint to its peer
+func (e *endpoint) Connect(addr types.FullAddress) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	netProtocol := e.netProtocol
+
+	nicid := addr.Nic
+	switch e.state {
+	case stateBound:
+		// If we're already bound to a Nic but the caller is requesting
+		// that we use a different one now, we cannot proceed
+		if e.boundNicId == 0 {
+			break
+		}
+
+		if nicid != 0 && nicid != e.boundNicId {
+			return types.ErrNoRoute
+		}
+
+		nicid = e.boundNicId
+
+	case stateInitial:
+		// Nothing to do. We'll eventually fill-in the gaps in the ID
+		// (if any) when we find a route
+
+	case stateConnecting:
+		// A connection request has already been issued but hasn't
+		// completed yet
+		return types.ErrAlreadyConnecting
+
+	case stateConnected:
+		// The endpoint is already connected
+		return types.ErrAlreadyConnected
+
+	default:
+		return types.ErrInvalidEndpointState
+	}
+
+	// Find a route to the desired destination
+	r, err := e.stack.FindRoute(nicid, e.id.LocalAddress, addr.Address, netProtocol)
+	if err != nil {
+		return err
+	}
+
+	netProtocols := []types.NetworkProtocolNumber{netProtocol}
+	e.id.LocalAddress = r.LocalAddress
+	e.id.RemoteAddress = addr.Address
+	e.id.RemotePort = addr.Port
+
+	if e.id.LocalPort != 0 {
+		// The endpoint is bound to a port, attempt to register it
+		err := e.stack.RegisterTransportEndpoint(nicid, netProtocols, ProtocolNumber, e.id, e)
+		if err != nil {
+			return err
+		}
+	} else {
+		log.Fatal("Connect: can't process if e.id.LocalPort is 0\n")
+	}
+
+	e.isRegistered = true
+	e.state = stateConnecting
+	e.route = r.Clone()
+	e.boundNicId = nicid
+	e.effectiveNetProtocols = netProtocols
+	e.workerRunning = true
+
+	go e.protocolMainLoop(false)
+
+	return types.ErrConnectStarted
+}
+
 // HandlePacket is called by the stack when new packets arrive to this transport
 // endpoint.
 func (e *endpoint) HandlePacket(r *types.Route, id types.TransportEndpointId, vv *buffer.VectorisedView) {

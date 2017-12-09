@@ -11,6 +11,7 @@ import (
 	"github.com/YaoZengzeng/yustack/buffer"
 	"github.com/YaoZengzeng/yustack/types"
 	"github.com/YaoZengzeng/yustack/checksum"
+	"github.com/YaoZengzeng/yustack/waiter"
 )
 
 // maxSegmentsPerWake is the maximum number of segments to process in the main
@@ -136,6 +137,34 @@ func (h *handshake) synRcvdState(s *segment) error {
 	return nil
 }
 
+// synSentState handles a segment received when the TCP 3-way handshake is in
+// the SYN-SENT state
+func (h *handshake) synSentState(s *segment) error {
+	// We are in the SYN-SENT state. We only care about segments that have
+	// the SYN flag
+	if !s.flagIsSet(flagSyn) {
+		return nil
+	}
+
+	// Parse the SYN options
+	rcvSynOpts := parseSynSegmentOptions(s)
+
+	// Remember the sequence number we'll ack from now on
+	h.ackNum = s.sequenceNumber + 1
+	h.flags |= flagAck
+	h.mss = rcvSynOpts.MSS
+	h.sndWndScale = rcvSynOpts.WS
+
+	// If this is a SYN ACK response, we only need to acknowledge the SYN
+	// and the handshake is completed
+	if s.flagIsSet(flagAck) {
+		h.state = handshakeCompleted
+		h.ep.sendRaw(nil, flagAck, h.iss + 1, h.ackNum, h.rcvWnd >> h.effectiveRcvWndScale())
+	}
+
+	return nil
+}
+
 // processSegments goes through the segment queue and process up to
 // maxSegmentsPerWake (if they're available)
 func (h *handshake) processSegments() error {
@@ -145,12 +174,13 @@ func (h *handshake) processSegments() error {
 			return nil
 		}
 
+		h.sndWnd = s.window
 		var err error
 		switch h.state {
 		case handshakeSynRcvd:
 			err = h.synRcvdState(s)
 		case handshakeSynSent:
-			log.Printf("processSegments: handshakeSynSent has not implemented yet\n")
+			err = h.synSentState(s)
 		}
 		if err != nil {
 			log.Printf("processSegments failed: %v\n", err)
@@ -320,14 +350,50 @@ func (e *endpoint) handleSegments() bool {
 	return true
 }
 
+// effectiveRcvWndScale returns the effective receive window scale to be used.
+// If the peer doesn't support window scaling, the effective rcv wnd scale is
+// zero; otherwise it's value calculated based on the initial rcv wnd
+func (h *handshake) effectiveRcvWndScale() uint8 {
+	if h.sndWndScale < 0 {
+		return 0
+	}
+
+	return uint8(h.rcvWndScale)
+}
+
 // protocolMainLoop is the main loop of the TCP protocol. It runs in its own
 // goroutine and is responsible for sending segments and handling received
 // segments
 func (e *endpoint) protocolMainLoop(passive bool) error {
+	if !passive {
+		// This is an active connection, so we must initialize the 3-way
+		// handshake, and then inform potential waiters about its completion
+		h, err := newHandshake(e, seqnum.Size(e.receiveBufferAvailable()))
+		if err != nil {
+			return err
+		}
+
+		err = h.execute()
+		if err != nil {
+			return err
+		}
+
+		// Transfer handshake state to TCP connection. We disable
+		// receive window scaling if the peer doesn't support it
+		// (indicated by a negative send window scale)
+		e.snd = newSender(e, h.iss, h.ackNum - 1, h.sndWnd, h.mss, h.sndWndScale)
+
+		e.rcvListMu.Lock()
+		e.rcv = newReceiver(e, h.ackNum - 1, h.rcvWnd, h.effectiveRcvWndScale())
+		e.rcvListMu.Unlock()
+	}
+
 	// Tell waiters that the endpoint is connected and writable
 	e.mu.Lock()
 	e.state = stateConnected
 	e.mu.Unlock()
+
+	e.waiterQueue.Notify(waiter.EventOut)
 
 	// Set up the functions that will be called when the main protocol loop
 	// wakes up
@@ -371,7 +437,6 @@ func (e *endpoint) protocolMainLoop(passive bool) error {
 }
 
 func (e *endpoint) handleWrite() bool {
-	log.Printf("I'm in handleWrite\n")
 	// Move packets from send queue to send list. The queue is accessible
 	// from other goroutines and protected by the send mutex, while the send
 	// list is only accessible from the handler goroutine, so it needs no mutexes
@@ -400,7 +465,6 @@ func (e *endpoint) handleWrite() bool {
 // sendTCP sends a TCP segment via the provided network endpoint and under the
 // provided identity.
 func sendTCP(r *types.Route, id types.TransportEndpointId, data buffer.View, flags byte, seq, ack seqnum.Value, rcvWnd seqnum.Size) error {
-	log.Printf("I'm in sendTCP\n")
 	// Allocate a buffer for the TCP header.
 	hdr := buffer.NewPrependable(header.TCPMinimumSize + int(r.MaxHeaderLength()))
 

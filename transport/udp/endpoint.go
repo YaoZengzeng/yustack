@@ -264,3 +264,8 @@ func (*endpoint) Listen(int) error {
 func (*endpoint) Accept() (types.Endpoint, *waiter.Queue, error) {
 	return nil, nil, types.ErrNotSupported
 }
+
+// Connect connects the endpoint to its peer. Specifying a Nic is optional
+func (*endpoint) Connect(addr types.FullAddress) error {
+	return types.ErrNotSupported
+}

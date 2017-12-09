@@ -117,6 +117,7 @@ func (s *sender) sendData() {
 	var seg *segment
 	end := s.sndUna.Add(s.sndWnd)
 	for seg = s.writeNext; seg != nil; seg = seg.Next() {
+		log.Printf("sendData: I'm in the for loop\n")
 		// We abuse the flags field to determine if we have already
 		// assigned a sequence number to this segment
 		if seg.flags == 0 {
@@ -131,6 +132,7 @@ func (s *sender) sendData() {
 		} else {
 			// We're sending a non-FIN segment
 			if !seg.sequenceNumber.LessThan(end) {
+				log.Printf("sendData: segment's sequenceNumber is less than sndUna + sndWnd\n")
 				break
 			}
 

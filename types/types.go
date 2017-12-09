@@ -60,6 +60,19 @@ type Endpoint interface {
 	//
 	// The returned Queue is the wait queue for the newly created endpoint
 	Accept() (Endpoint, *waiter.Queue, error)
+
+	// Connect connects the endpoint to its peer. Specifying a Nic is
+	// optional.
+	//
+	// There are three classes of return values:
+	//	nil -- the attemp to connect succeeded
+	//	ErrConnectStarted -- the connect attempt started but hasn't
+	//		completed yet. In this case, the actual result will
+	//		become available via GetSockOpt(ErrorOption) when
+	//		the endpoint becomes writable. (This mimics the connect(2)
+	//		syscall behaviour.)
+	//	Anything else -- the attemp to connect failed
+	Connect(address FullAddress) error
 }
 
 // FullAddress represents a full transport node address, as required by the
