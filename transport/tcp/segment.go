@@ -51,6 +51,19 @@ func newSegment(r *types.Route, id types.TransportEndpointId, vv *buffer.Vectori
 	return s
 }
 
+// logicalLen is the segment length in the sequence number space. It's defined
+// as the data length plus one for each of the SYN and FIN bits set
+func (s *segment) logicalLen() seqnum.Size {
+	l := seqnum.Size(s.data.Size())
+	if s.flagIsSet(flagSyn) {
+		l++
+	}
+	if s.flagIsSet(flagFin) {
+		l++
+	}
+	return l
+}
+
 func newSegmentFromView(r *types.Route, id types.TransportEndpointId, v buffer.View) *segment {
 	s := &segment{
 		id:		id,

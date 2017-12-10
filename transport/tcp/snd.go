@@ -107,6 +107,11 @@ func newSender(ep *endpoint, iss, irs seqnum.Value, sndWnd seqnum.Size, mss uint
 	return s
 }
 
+// sendAck sends an ACk segment
+func (s *sender) sendAck() {
+	s.sendSegment(nil, flagAck, s.sndNxt)
+}
+
 // sendData sends new data segments. It is called when data becomes available or
 // when the send window opens up
 func (s *sender) sendData() {
@@ -127,8 +132,9 @@ func (s *sender) sendData() {
 
 		var segEnd seqnum.Value
 		if seg.data.Size() == 0 {
-			log.Printf("sendData: segment length is zero, we're not ready to send FIN segment\n")
-			return
+			// We're sending a FIN
+			seg.flags = flagAck | flagFin
+			segEnd = seg.sequenceNumber.Add(1)
 		} else {
 			// We're sending a non-FIN segment
 			if !seg.sequenceNumber.LessThan(end) {
@@ -153,6 +159,41 @@ func (s *sender) sendData() {
 			s.sndNxt = segEnd
 		}
 	}
+
+	// Remember the next segment we'll write
+	s.writeNext = seg
+}
+
+// handleRcvdSegment is called when a segment is received; it is responsible for
+// updating the send-related state
+func (s *sender) handleRcvdSegment(seg *segment) {
+	// Stash away the current window size
+	s.sndWnd = seg.window
+
+	// Ignore ack if it doesn't acknowledge any new data
+	ack := seg.ackNumber
+	if (ack - 1).InRange(s.sndUna, s.sndNxt) {
+		// Remove all acknowledged data from the write list
+		acked :=s.sndUna.Size(ack)
+		s.sndUna = ack
+
+		ackLeft := acked
+		for ackLeft > 0 {
+			// We use logicalLen here because we can have FIN
+			// segments (which are always at the end of list) that
+			// have no data, but do consume a segment number
+			seg := s.writeList.Front()
+			dataLen := seg.logicalLen()
+
+			if dataLen > ackLeft {
+				seg.data.TrimFront(int(ackLeft))
+				break
+			}
+
+			s.writeList.Remove(seg)
+			ackLeft -= dataLen
+		}
+	}
 }
 
 // sendSegment sends a new segment containing the given payload, flags and
@@ -160,6 +201,10 @@ func (s *sender) sendData() {
 func (s *sender) sendSegment(data *buffer.VectorisedView, flags byte, seq seqnum.Value) error {
 	log.Printf("I'm in sendSegment\n")
 	rcvNxt, rcvWnd := s.ep.rcv.getSendParams()
+
+	if data == nil {
+		return s.ep.sendRaw(nil, flags, seq, rcvNxt, rcvWnd)
+	}
 
 	if len(data.Views()) > 1 {
 		panic("send path does not support views with multiple buffers")

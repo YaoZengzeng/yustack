@@ -344,7 +344,13 @@ func (e *endpoint) handleSegments() bool {
 			// state all segments must carry current acknowledgement
 			// information"
 			e.rcv.handleRcvdSegment(s)
+			e.snd.handleRcvdSegment(s)
 		}
+	}
+
+	// Send an ACK for all processed packets if needed
+	if e.rcv.rcvNxt != e.snd.maxSentAck {
+		e.snd.sendAck()
 	}
 
 	return true
@@ -359,6 +365,16 @@ func (h *handshake) effectiveRcvWndScale() uint8 {
 	}
 
 	return uint8(h.rcvWndScale)
+}
+
+func (e *endpoint) handleClose() bool {
+	// Drain the send queue
+	e.handleWrite()
+
+	// Mark send side as closed
+	e.snd.closed = true
+
+	return true
 }
 
 // protocolMainLoop is the main loop of the TCP protocol. It runs in its own
@@ -408,6 +424,10 @@ func (e *endpoint) protocolMainLoop(passive bool) error {
 		{
 			w: &e.newSegmentWaker,
 			f: e.handleSegments,
+		},
+		{
+			w: &e.sndCloseWaker,
+			f: e.handleClose,
 		},
 	}
 

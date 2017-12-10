@@ -24,6 +24,11 @@ const (
 // writer reads from standard input and writes to the endpoint until standard
 // input is closed. It signals that it's done by closing the provided channel
 func writer(ch chan struct{}, ep types.Endpoint) {
+	defer func() {
+		ep.Shutdown(types.ShutdownWrite)
+		close(ch)
+	}()
+
 	r := bufio.NewReader(os.Stdin)
 	for {
 		v := buffer.NewView(1024)
@@ -159,4 +164,5 @@ func main() {
 	// The reader has completed. Now wait for the writer as well
 	<-writeCompletedCh
 
+	ep.Close()
 }

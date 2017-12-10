@@ -79,6 +79,18 @@ func (r *receiver) consumeSegment(s *segment, segSeq seqnum.Value, segLen seqnum
 		return false
 	}
 
+	// Update the segment that we're expecting to consume
+	r.rcvNxt = segSeq.Add(segLen)
+	if s.flagIsSet(flagFin) {
+		r.rcvNxt++
+
+		// Send ACK immediately
+		r.ep.snd.sendAck()
+
+		// Tell any readers that no more data will come
+		r.closed = true
+		r.ep.readyToRead(nil)
+	}
 	return  true
 }
 
@@ -110,7 +122,7 @@ func (r *receiver) handleRcvdSegment(s *segment) {
 	// If the sequence number range is outside the acceptance range, just
 	// send an ACK. This is according to RFC 793, page 37
 	if !r.acceptable(segSeq, segLen) {
-		log.Printf("receiver.handleRcvdSegment: segment is not acceptable\n")
+		r.ep.snd.sendAck()
 		return
 	}
 

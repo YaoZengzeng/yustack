@@ -269,3 +269,16 @@ func (*endpoint) Accept() (types.Endpoint, *waiter.Queue, error) {
 func (*endpoint) Connect(addr types.FullAddress) error {
 	return types.ErrNotSupported
 }
+
+// Shutdown closes the read and/or write end of the endpoint connection
+// ot its peer
+func (*endpoint) Shutdown(flags types.ShutdownFlags) error {
+	log.Printf("udp's Shutdown has not implemented yet\n")
+	return nil
+}
+
+// Close puts the endpoint in a closed state and frees all resources
+// associated with it
+func (*endpoint) Close() {
+	log.Printf("udp's Close has not implemented yet\n")
+}

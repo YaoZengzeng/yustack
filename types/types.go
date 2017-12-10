@@ -73,6 +73,14 @@ type Endpoint interface {
 	//		syscall behaviour.)
 	//	Anything else -- the attemp to connect failed
 	Connect(address FullAddress) error
+
+	// Close puts the endpoint in a closed state and frees all resources
+	// associated with it
+	Close()
+
+	// Shutdown closes the read and/or write end of the endpoint connection
+	// to its peer
+	Shutdown(flags ShutdownFlags) error
 }
 
 // FullAddress represents a full transport node address, as required by the
@@ -90,3 +98,14 @@ type FullAddress struct {
 	// This may not be used by all endpoint types
 	Port uint16
 }
+
+// ShutdownFlags represents flags that can be passed to the Shutdown() method
+// of the Endpoint interface
+type ShutdownFlags int
+
+// Values of the flags that can be passed to the Shutdown() method. They can
+// be OR'ed together
+const (
+	ShutdownRead	ShutdownFlags = 1 << iota
+	ShutdownWrite
+)

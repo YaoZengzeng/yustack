@@ -426,6 +426,15 @@ func (e *endpoint) Connect(addr types.FullAddress) error {
 	return types.ErrConnectStarted
 }
 
+// Close puts the endpoint in a closed state and frees all resources associated
+// with it. It must be called only once and with no other concurrent calls to
+// the endpoint
+func (e *endpoint) Close() {
+	// Issue a shutdown so that the peer knows we won't send any more data
+	// if we're connected, or stop accepting if we're listening
+	e.Shutdown(types.ShutdownWrite | types.ShutdownRead)
+}
+
 // HandlePacket is called by the stack when new packets arrive to this transport
 // endpoint.
 func (e *endpoint) HandlePacket(r *types.Route, id types.TransportEndpointId, vv *buffer.VectorisedView) {
@@ -444,3 +453,44 @@ func (e *endpoint) HandlePacket(r *types.Route, id types.TransportEndpointId, vv
 	}
 }
 
+// Shutdown closes the read and/or write end of of the endpoint connection to its
+// peers
+func (e *endpoint) Shutdown(flags types.ShutdownFlags) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	switch e.state {
+	case stateConnected:
+		// Close for write
+		if (flags & types.ShutdownWrite) != 0 {
+			e.sndBufMu.Lock()
+
+			if e.sndBufSize < 0 {
+				// Already closed
+				e.sndBufMu.Unlock()
+				break
+			}
+
+			// Queue fin segment
+			s := newSegmentFromView(&e.route, e.id, nil)
+			e.sndQueue.PushBack(s)
+			e.sndBufInQueue++
+
+			// Mark endpoint as closed
+			e.sndBufSize = -1
+
+			e.sndBufMu.Unlock()
+
+			// Tell protocol goroutine to close
+			e.sndCloseWaker.Assert()
+		}
+
+	case stateListen:
+		log.Printf("Shutdown: stateListen has not implemented yet\n")
+
+	default:
+		return types.ErrInvalidEndpointState
+	}
+
+	return nil
+}
