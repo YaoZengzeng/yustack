@@ -342,11 +342,9 @@ func (e *endpoint) Write(v buffer.View, to *types.FullAddress) (uintptr, error) 
 
 	if e.workMu.TryLock() {
 		// Do the work inline
-		log.Printf("Write through handleWrite\n")
 		e.handleWrite()
 		e.workMu.Unlock()
 	} else {
-		log.Printf("Write through sndWaker\n")
 		// Let the protocol goroutine do the work
 		e.sndWaker.Assert()
 	}

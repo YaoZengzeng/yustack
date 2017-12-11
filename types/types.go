@@ -1,6 +1,8 @@
 package types
 
 import (
+	"fmt"
+
 	"github.com/YaoZengzeng/yustack/buffer"
 	"github.com/YaoZengzeng/yustack/waiter"
 )
@@ -8,6 +10,16 @@ import (
 // Address is a byte slice cast as a string that represents the address of a
 // network node. Or, when we support the case of unix endpoints, it may represent a path.
 type Address string
+
+// String implements the fmt.Stringer interface
+func (a Address) String() string {
+	switch len(a) {
+	case 4:
+		return fmt.Sprintf("%d.%d.%d.%d", int(a[0]), int(a[1]), int(a[2]), int(a[3]))
+	default:
+		return fmt.Sprintf("%x", []byte(a))
+	}
+}
 
 // NicId is a number that uniquely identifies a Nic
 type NicId int32

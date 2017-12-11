@@ -144,6 +144,14 @@ func (b TCP) WindowSize() uint16 {
 	return binary.BigEndian.Uint16(b[winSize:])
 }
 
+func (b TCP) Checksum() uint16 {
+	return binary.BigEndian.Uint16(b[tcpChecksum:])
+}
+
+func (b TCP) Options() []byte {
+	return b[TCPMinimumSize:b.DataOffset()]
+}
+
 // SetChecksum sets the checksum field of the tcp header
 func (b TCP) SetChecksum(checksum uint16) {
 	binary.BigEndian.PutUint16(b[tcpChecksum:], checksum)
@@ -302,4 +310,11 @@ func ParseTCPOptions(b []byte) TCPOptions {
 		}
 	}
 	return opts
+}
+
+// ParsedOptions returns a TCPOptions structure which parses and caches the TCP
+// option values in the TCP segment. NOTE: Invoking this function repeatedly is
+// expensive as it reparses the options on each invocation
+func (b TCP) ParsedOptions() TCPOptions {
+	return ParseTCPOptions(b.Options())
 }

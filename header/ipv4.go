@@ -102,6 +102,11 @@ func (b IPv4) Protocol() uint8 {
 	return b[protocol]
 }
 
+// ID returns the value of the identifier field of the ipv4 protocol header
+func (b IPv4) ID() uint16 {
+	return binary.BigEndian.Uint16(b[id:])
+}
+
 // SourceAddress returns the "source address" field of the ipv4 header
 func (b IPv4) SourceAddress() types.Address {
 	return types.Address(b[srcAddr : srcAddr + IPv4AddressSize])

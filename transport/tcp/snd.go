@@ -118,11 +118,9 @@ func (s *sender) sendData() {
 	// TODO: We currently don't merge multiple send buffers
 	// into one segment if they happen to fit. We should do that
 	// eventually
-	log.Printf("I'm in sendData\n")
 	var seg *segment
 	end := s.sndUna.Add(s.sndWnd)
 	for seg = s.writeNext; seg != nil; seg = seg.Next() {
-		log.Printf("sendData: I'm in the for loop\n")
 		// We abuse the flags field to determine if we have already
 		// assigned a sequence number to this segment
 		if seg.flags == 0 {
@@ -199,7 +197,6 @@ func (s *sender) handleRcvdSegment(seg *segment) {
 // sendSegment sends a new segment containing the given payload, flags and
 // sequence number
 func (s *sender) sendSegment(data *buffer.VectorisedView, flags byte, seq seqnum.Value) error {
-	log.Printf("I'm in sendSegment\n")
 	rcvNxt, rcvWnd := s.ep.rcv.getSendParams()
 
 	if data == nil {

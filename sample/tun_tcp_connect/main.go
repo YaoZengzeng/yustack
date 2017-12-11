@@ -15,6 +15,7 @@ import (
 	"github.com/YaoZengzeng/yustack/waiter"
 	"github.com/YaoZengzeng/yustack/link/tundev"
 	"github.com/YaoZengzeng/yustack/buffer"
+	"github.com/YaoZengzeng/yustack/link/sniffer"
 )
 
 const (
@@ -89,7 +90,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	if err := s.CreateNic(nicId, linkId); err != nil {
+	if err := s.CreateNic(nicId, sniffer.New(linkId)); err != nil {
 		log.Fatal(err)
 	}
 
