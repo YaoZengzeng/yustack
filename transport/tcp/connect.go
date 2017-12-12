@@ -248,7 +248,10 @@ func (h *handshake) execute() error {
 			sendSynTCP(&h.ep.route, h.ep.id, h.flags, h.iss, h.ackNum, h.rcvWnd, synOpts)
 
 		case wakerForNotification:
-			log.Printf("handshake execute: wakerForNotification has not implemented yet\n")
+			n := h.ep.fetchNotifications()
+			if n & notifyClose != 0 {
+				return types.ErrAborted
+			}
 
 		case wakerForNewSegment:
 			if err := h.processSegments(); err != nil {
@@ -377,10 +380,46 @@ func (e *endpoint) handleClose() bool {
 	return true
 }
 
+// resetConnection sends a RST segment and puts the endpoint in an error state
+// with the given error code
+// This method must only be called from the protocol goroutine
+func (e *endpoint) resetConnection(err error) {
+	e.sendRaw(nil, flagAck | flagRst, e.snd.sndUna, e.rcv.rcvNxt, 0)
+
+	e.mu.Lock()
+	e.state = stateError
+	e.hardError = err
+	e.mu.Unlock()
+}
+
+// completeWorker is called by the worker goroutine when it's about to exit. It
+// marks the worker as completed and performs cleanup work if requested by Close()
+func (e *endpoint) completeWorker() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	e.workerRunning = false
+	if e.workerCleanup {
+		e.cleanup()
+	}
+}
+
 // protocolMainLoop is the main loop of the TCP protocol. It runs in its own
 // goroutine and is responsible for sending segments and handling received
 // segments
 func (e *endpoint) protocolMainLoop(passive bool) error {
+	var closeTimer *time.Timer
+	var closeWaker sleep.Waker
+
+	defer func() {
+		e.waiterQueue.Notify(waiter.EventIn | waiter.EventOut)
+		e.completeWorker()
+
+		if closeTimer != nil {
+			closeTimer.Stop()
+		}
+	}()
+
 	if !passive {
 		// This is an active connection, so we must initialize the 3-way
 		// handshake, and then inform potential waiters about its completion
@@ -426,8 +465,29 @@ func (e *endpoint) protocolMainLoop(passive bool) error {
 			f: e.handleSegments,
 		},
 		{
+			w: &closeWaker,
+			f: func() bool {
+				e.resetConnection(types.ErrConnectionAborted)
+				return false
+			},
+		},
+		{
 			w: &e.sndCloseWaker,
 			f: e.handleClose,
+		},
+		{
+			w: &e.notificationWaker,
+			f: func() bool {
+				n := e.fetchNotifications()
+				if n & notifyClose != 0 && closeTimer == nil {
+					// Reset the connection 3 seconds after the
+					// endpoint has been closed
+					closeTimer = time.AfterFunc(3 * time.Second, func() {
+						closeWaker.Assert()
+					})
+				}
+				return true
+			},
 		},
 	}
 

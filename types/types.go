@@ -42,6 +42,10 @@ type TransportDispatcher interface {
 	DeliverTransportPacket(r *Route, protocol TransportProtocolNumber, vv *buffer.VectorisedView)
 }
 
+// ErrorOption is used in GetSockOpt to specify that the last error reported by
+// the endpoint should be cleared and returned
+type ErrorOption struct{}
+
 // Endpoint is the interface implemented by transport protocols (e.g., tcp, udp)
 // that exposes functionality link read, write, connect, etc to uses of the networking
 // stack
@@ -93,6 +97,10 @@ type Endpoint interface {
 	// Shutdown closes the read and/or write end of the endpoint connection
 	// to its peer
 	Shutdown(flags ShutdownFlags) error
+
+	// GetSockOpt gets a socket option. opt should be a pointer to one of the
+	// *Option types
+	GetSockOpt(opt interface{}) error
 }
 
 // FullAddress represents a full transport node address, as required by the

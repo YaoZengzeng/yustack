@@ -3,6 +3,7 @@ package tcp
 import (
 	"sync"
 	"log"
+	"sync/atomic"
 
 	"github.com/YaoZengzeng/yustack/seqnum"
 	"github.com/YaoZengzeng/yustack/sleep"
@@ -25,6 +26,13 @@ const (
 	stateError
 )
 
+// Reason for notifying the protocol goroutine
+const (
+	notifyNonZeroReceiveWindow = 1 << iota
+	notifyReceiveWindowChanged
+	notifyClose
+)
+
 // DefaultBufferSize is the default size of the receive and send buffers
 const DefaultBufferSize = 208 * 1024
 
@@ -45,6 +53,11 @@ type endpoint struct {
 	netProtocol	types.NetworkProtocolNumber
 	waiterQueue	*waiter.Queue
 
+	// lastError represents the last error that the endpoint reported;
+	// access to it is protected by the following mutex
+	lastErrorMu sync.Mutex
+	lastError 	error
+
 	// The following fields are protected by the mutex
 	mu 				sync.RWMutex
 	id 				types.TransportEndpointId
@@ -61,6 +74,11 @@ type endpoint struct {
 	// connected to an IPv4 mapped address)
 	effectiveNetProtocols []types.NetworkProtocolNumber
 
+	// hardError is meaningfull only when state is stateError, it stores the
+	// error to be returned when read/write syscalls are called and the
+	// endpoint is in this state
+	hardError error
+
 	// The following fields are used to manage the receive queue. The
 	// protocol goroutine adds ready-for-delivery segments to rcvList,
 	// which are returned by Read() calls to users.
@@ -75,6 +93,11 @@ type endpoint struct {
 
 	// workerRunning specifies if a worker goroutine is running
 	workerRunning bool
+
+	// workerCleanup specifies if the worker goroutine must perform cleanup
+	// before exitting. This can only be set to true when workerRunning is
+	// also true, and they're both protected by the mutex
+	workerCleanup bool
 
 	// segmentQueue is used to hand received segments to the protocol
 	// goroutine. Segments are queued as long as the queue is not full,
@@ -102,6 +125,10 @@ type endpoint struct {
 	// notificationWaker is used to indicate to the protocol goroutine that
 	// it needs to wake up and check for notifications.
 	notificationWaker sleep.Waker
+
+	// notifyFlags is a bitmask of flags used to indicate to the protocol
+	// goroutine what it was notified; this is only associated atomically
+	notifyFlags uint32
 
 	// acceptedChan is used by a listening endpoint protocol goroutine to
 	// send newly accepted connections to the endpoint so that they can be
@@ -409,7 +436,22 @@ func (e *endpoint) Connect(addr types.FullAddress) error {
 			return err
 		}
 	} else {
-		log.Fatal("Connect: can't process if e.id.LocalPort is 0\n")
+		// The endpoint doesn't have a local port yet, so try to get one
+		_, err := e.stack.PickEphemeralPort(func (p uint16) (bool, error) {
+			e.id.LocalPort = p
+			err := e.stack.RegisterTransportEndpoint(nicid, netProtocols, ProtocolNumber, e.id, e)
+			switch err {
+			case nil:
+				return true, nil
+			case types.ErrPortInUse:
+				return false, nil
+			default:
+				return false, err
+			}
+		})
+		if err != nil {
+			return err
+		}
 	}
 
 	e.isRegistered = true
@@ -424,6 +466,48 @@ func (e *endpoint) Connect(addr types.FullAddress) error {
 	return types.ErrConnectStarted
 }
 
+// cleanup frees all resources associated with the endpoint. It is called after
+// Close() is called and the worker goroutine (if any) is done with its work
+func (e *endpoint) cleanup() {
+	// Close all endpoints that might have been accepted by TCP but not by
+	// the client
+	if e.acceptedChan != nil {
+		close(e.acceptedChan)
+		for n := range e.acceptedChan {
+			n.resetConnection(types.ErrConnectionAborted)
+			n.Close()
+		}
+	}
+
+	if e.isRegistered {
+		e.stack.UnregisterTransportEndpoint(e.boundNicId, e.effectiveNetProtocols, ProtocolNumber, e.id)
+	}
+}
+
+func (e *endpoint) fetchNotifications() uint32 {
+	return atomic.SwapUint32(&e.notifyFlags, 0)
+}
+
+func (e *endpoint) notifyProtocolGoroutine(n uint32) {
+	for {
+		v := atomic.LoadUint32(&e.notifyFlags)
+		if v & n == n {
+			// The flags are already set
+			return
+		}
+
+		if atomic.CompareAndSwapUint32(&e.notifyFlags, v, v | n) {
+			if v == 0 {
+				// We are causing a transition from no flags to
+				// at least one flag set, so we must cause the
+				// protocol goroutine to wake up
+				e.notificationWaker.Assert()
+			}
+			return
+		}
+	}
+}
+
 // Close puts the endpoint in a closed state and frees all resources associated
 // with it. It must be called only once and with no other concurrent calls to
 // the endpoint
@@ -431,6 +515,24 @@ func (e *endpoint) Close() {
 	// Issue a shutdown so that the peer knows we won't send any more data
 	// if we're connected, or stop accepting if we're listening
 	e.Shutdown(types.ShutdownWrite | types.ShutdownRead)
+
+	// While we hold the lock, determine if the cleanup should happen
+	// inline or if we should tell the worker (if any) to do the cleanup
+	e.mu.Lock()
+	worker := e.workerRunning
+	if worker {
+		e.workerCleanup = true
+	}
+
+	e.mu.Unlock()
+
+	// Now that we don't hold the lock anymore, either perform the local
+	// cleanup or kick the worker to make sure it knows it needs to cleanup
+	if !worker {
+		e.cleanup()
+	} else {
+		e.notifyProtocolGoroutine(notifyClose)
+	}
 }
 
 // HandlePacket is called by the stack when new packets arrive to this transport
@@ -491,4 +593,18 @@ func (e *endpoint) Shutdown(flags types.ShutdownFlags) error {
 	}
 
 	return nil
+}
+
+// GetSockOpt implements types.Endpoint.GetSockOpt
+func (e *endpoint) GetSockOpt(opt interface{}) error {
+	switch opt.(type) {
+	case types.ErrorOption:
+		e.lastErrorMu.Lock()
+		err := e.lastError
+		e.lastError = nil
+		e.lastErrorMu.Unlock()
+		return err
+	}
+
+	return types.ErrUnknownProtocolOption
 }

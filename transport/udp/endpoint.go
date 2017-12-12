@@ -282,3 +282,8 @@ func (*endpoint) Shutdown(flags types.ShutdownFlags) error {
 func (*endpoint) Close() {
 	log.Printf("udp's Close has not implemented yet\n")
 }
+
+// GetSockOpt implements types.Endpoint.GetSockOpt
+func (*endpoint) GetSockOpt(opt interface{}) error {
+	log.Printf("udp's GetSockOpt has not implemented yet\n")
+}
