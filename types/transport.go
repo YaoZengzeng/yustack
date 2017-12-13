@@ -31,3 +31,7 @@ type TransportEndpoint interface {
 	// this transport endpoint
 	HandlePacket(r *Route, id TransportEndpointId, vv *buffer.VectorisedView)
 }
+
+// ReceiveBufferSizeOption is used by SetSockOpt/GetSockOpt to specify the
+// receive buffer size option
+type ReceiveBufferSizeOption int

@@ -49,3 +49,10 @@ func TestGiveUpContext(t *testing.T) {
 	<-notifyCh
 	err = ep.GetSockOpt(types.ErrorOption{})
 }
+
+func TestActiveHandshake(t *testing.T) {
+	c := context.New(t, defaultMTU)
+	defer c.Cleanup()
+
+	c.CreateConnected(789, 30000, nil)
+}

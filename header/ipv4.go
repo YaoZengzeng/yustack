@@ -117,6 +117,11 @@ func (b IPv4) DestinationAddress() types.Address {
 	return types.Address(b[dstAddr : dstAddr + IPv4AddressSize])
 }
 
+// Checksum returns the checksum field of the ipv4 header
+func (b IPv4) Checksum() uint16 {
+	return binary.BigEndian.Uint16(b[ipChecksum:])
+}
+
 // IsValid performs basic validation on the packet
 func (b IPv4) IsValid(pktSize int) bool {
 	if len(b) < IPv4MinimumSize {
@@ -130,6 +135,11 @@ func (b IPv4) IsValid(pktSize int) bool {
 	}
 
 	return true
+}
+
+// TransportProtocol implements Network.TransportProtocol
+func (b IPv4) TransportProtocol() types.TransportProtocolNumber {
+	return types.TransportProtocolNumber(b.Protocol())
 }
 
 // Encode encodes all the fields of the ipv4 header
@@ -166,4 +176,14 @@ func (b IPv4) SetFlagsFragmentOffset(flags uint8, offset uint16) {
 // CalculateChecksum calculates the checksum of the ipv4 header
 func (b IPv4) CalculateChecksum() uint16 {
 	return checksum.Checksum(b[:b.HeaderLength()], 0)
+}
+
+// Payload implements Network.Payload
+func (b IPv4) Payload() []byte {
+	return b[b.HeaderLength():][:b.PayloadLength()]
+}
+
+// PayloadLength returns the length of the payload portion of the ipv4 packet
+func (b IPv4) PayloadLength() uint16 {
+	return b.TotalLength() - uint16(b.HeaderLength())
 }
