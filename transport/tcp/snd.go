@@ -199,6 +199,9 @@ func (s *sender) handleRcvdSegment(seg *segment) {
 func (s *sender) sendSegment(data *buffer.VectorisedView, flags byte, seq seqnum.Value) error {
 	rcvNxt, rcvWnd := s.ep.rcv.getSendParams()
 
+	// Remember the max sent ack
+	s.maxSentAck = rcvNxt
+
 	if data == nil {
 		return s.ep.sendRaw(nil, flags, seq, rcvNxt, rcvWnd)
 	}

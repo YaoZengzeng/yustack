@@ -74,6 +74,10 @@ type Context struct {
 	// mode
 	IRS seqnum.Value
 
+	// Port holds the port bound by EP below in case of an active connect or
+	// the listening port number in case of a passive connect
+	Port uint16
+
 	// EP is the test endpoint in the stack owned by this context. This endpoint
 	// is used in various tests to either initiate an active context or is used
 	// as a passive listening endpoint to accept inbound connections
@@ -266,6 +270,7 @@ func (c *Context) CreateConnectedWithRawOptions(iss seqnum.Value, rcvWnd seqnum.
 		c.t.Fatalf("Time out waiting for connection")
 	}
 
+	c.Port = tcp.SourcePort()
 }
 
 // Cleanup closes the context endpoint if required

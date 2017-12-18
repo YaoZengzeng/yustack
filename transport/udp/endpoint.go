@@ -286,4 +286,5 @@ func (*endpoint) Close() {
 // GetSockOpt implements types.Endpoint.GetSockOpt
 func (*endpoint) GetSockOpt(opt interface{}) error {
 	log.Printf("udp's GetSockOpt has not implemented yet\n")
+	return nil
 }

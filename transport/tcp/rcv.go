@@ -1,7 +1,7 @@
 package tcp
 
 import (
-	"log"
+	"container/heap"
 
 	"github.com/YaoZengzeng/yustack/seqnum"
 )
@@ -35,6 +35,7 @@ func newReceiver(ep *endpoint, irs seqnum.Value, rcvWnd seqnum.Size, rcvWndScale
 		rcvNxt:			irs + 1,
 		rcvAcc:			irs.Add(rcvWnd + 1),
 		rcvWndScale:	rcvWndScale,
+		pendingBufSize:	rcvWnd,
 	}
 }
 
@@ -128,7 +129,36 @@ func (r *receiver) handleRcvdSegment(s *segment) {
 
 	// Defer segment processing if it can't be consumed now
 	if !r.consumeSegment(s, segSeq, segLen) {
-		log.Printf("receiver.handleRcvdSegment: segment can not be consumed\n")
+		if segLen > 0 || s.flagIsSet(flagFin) {
+			// We only store the segment if it's within our buffer
+			// size limit
+			if r.pendingBufUsed < r.pendingBufSize {
+				r.pendingBufUsed += s.logicalLen()
+				heap.Push(&r.pendingRcvdSegments, s)
+			}
+
+			// Immediately send an ack so that the peer knows it may
+			// have to retransmit
+			r.ep.snd.sendAck()
+		}
 		return
+	}
+
+	// By consuming the current segment, we may have filled a gap in the
+	// sequence number domain that allows pending segments to be consumed
+	// now. So try to do it
+	for !r.closed && r.pendingRcvdSegments.Len() > 0 {
+		s := r.pendingRcvdSegments[0]
+		segLen := seqnum.Size(s.data.Size())
+		segSeq := s.sequenceNumber
+
+		// Skip segment altogether if it has already been acknowledged
+		if !segSeq.Add(segLen - 1).LessThan(r.rcvNxt) &&
+			!r.consumeSegment(s, segSeq, segLen) {
+				break
+		}
+
+		heap.Pop(&r.pendingRcvdSegments)
+		r.pendingBufUsed -= s.logicalLen()
 	}
 }
