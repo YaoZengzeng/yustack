@@ -479,6 +479,15 @@ func (e *endpoint) protocolMainLoop(passive bool) error {
 			w: &e.notificationWaker,
 			f: func() bool {
 				n := e.fetchNotifications()
+
+				if n & notifyNonZeroReceiveWindow != 0 {
+					e.rcv.nonZeroWindow()
+				}
+
+				if n & notifyReceiveWindowChanged != 0 {
+					e.rcv.pendingBufSize = seqnum.Size(e.receiveBufferSize())
+				}
+
 				if n & notifyClose != 0 && closeTimer == nil {
 					// Reset the connection 3 seconds after the
 					// endpoint has been closed

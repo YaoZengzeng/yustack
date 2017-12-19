@@ -283,6 +283,12 @@ func (*endpoint) Close() {
 	log.Printf("udp's Close has not implemented yet\n")
 }
 
+// SetSockOpt sets a socket option. Currently not supported
+func (*endpoint) SetSockOpt(opt interface{}) error {
+	log.Printf("udp's SetSockOpt has not implemented yet\n")
+	return nil
+}
+
 // GetSockOpt implements types.Endpoint.GetSockOpt
 func (*endpoint) GetSockOpt(opt interface{}) error {
 	log.Printf("udp's GetSockOpt has not implemented yet\n")

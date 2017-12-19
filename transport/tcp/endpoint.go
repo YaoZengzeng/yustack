@@ -34,7 +34,7 @@ const (
 )
 
 // DefaultBufferSize is the default size of the receive and send buffers
-const DefaultBufferSize = 208 * 1024
+const DefaultBufferSize = 1024
 
 // endpoint represents a TCP endpoint. This struct serves as the interface
 // between users of the endpoint and the protocol implementation; it is legal to
@@ -301,6 +301,18 @@ func (e *endpoint) readyToRead(s *segment) {
 	e.waiterQueue.Notify(waiter.EventIn)
 }
 
+// zeroReceiveWindow checks if the receive window to be announced now would be
+// zero, based on the amount of available buffer and the receive window scaling
+//
+// It must be called with rcvListMu held
+func (e *endpoint) zeroReceiveWindow(scale uint8) bool {
+	if e.rcvBufUsed >= e.rcvBufSize {
+		return true
+	}
+
+	return ((e.rcvBufSize - e.rcvBufUsed) >> scale) == 0
+}
+
 func (e *endpoint) readLocked() (buffer.View, error) {
 	if e.rcvBufUsed == 0 {
 		if e.rcvClosed || e.state != stateConnected {
@@ -318,7 +330,12 @@ func (e *endpoint) readLocked() (buffer.View, error) {
 		e.rcvList.Remove(s)
 	}
 
+	scale := e.rcv.rcvWndScale
+	wasZero := e.zeroReceiveWindow(scale)
 	e.rcvBufUsed -= len(v)
+	if wasZero && !e.zeroReceiveWindow(scale) {
+		e.notifyProtocolGoroutine(notifyNonZeroReceiveWindow)
+	}
 
 	return v, nil
 }
@@ -595,6 +612,25 @@ func (e *endpoint) Shutdown(flags types.ShutdownFlags) error {
 	return nil
 }
 
+// SetSockOpt sets a socket option
+func (e *endpoint) SetSockOpt(opt interface{}) error {
+	switch v := opt.(type) {
+	case types.ReceiveBufferSizeOption:
+		mask := uint32(notifyReceiveWindowChanged)
+
+		e.rcvListMu.Lock()
+		e.rcvBufSize = int(v)
+		e.rcvListMu.Unlock()
+
+		e.segmentQueue.setLimit(2 * int(v))
+
+		e.notifyProtocolGoroutine(mask)
+		return nil
+	}
+
+	return nil
+}
+
 // GetSockOpt implements types.Endpoint.GetSockOpt
 func (e *endpoint) GetSockOpt(opt interface{}) error {
 	switch opt.(type) {
@@ -607,4 +643,12 @@ func (e *endpoint) GetSockOpt(opt interface{}) error {
 	}
 
 	return types.ErrUnknownProtocolOption
+}
+
+func (e *endpoint) receiveBufferSize() int {
+	e.rcvListMu.Lock()
+	size := e.rcvBufSize
+	e.rcvListMu.Unlock()
+
+	return size
 }

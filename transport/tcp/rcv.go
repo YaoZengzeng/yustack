@@ -162,3 +162,11 @@ func (r *receiver) handleRcvdSegment(s *segment) {
 		r.pendingBufUsed -= s.logicalLen()
 	}
 }
+
+// nonZeroWindow is called when the receive window grows from zero to nonzero;
+// in such cases we may need to send an ack to indicate to our peer that it can
+// resume sending data
+func (r *receiver) nonZeroWindow() {
+	// Immediately send an ack
+	r.ep.snd.sendAck()
+}

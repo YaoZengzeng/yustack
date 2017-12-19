@@ -216,6 +216,12 @@ func (c *Context) CreateConnectedWithRawOptions(iss seqnum.Value, rcvWnd seqnum.
 		c.t.Fatalf("NewEndpoint failed: %v", err)
 	}
 
+	if epRcvBuf != nil {
+		if err := c.EP.SetSockOpt(*epRcvBuf); err != nil {
+			c.t.Fatalf("SetSockOpt failed: %v", err)
+		}
+	}
+
 	// Start connection attempt
 	waitEntry, notifyCh := waiter.NewChannelEntry(nil)
 	c.WQ.EventRegister(&waitEntry, waiter.EventOut)

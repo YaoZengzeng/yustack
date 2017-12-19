@@ -98,6 +98,9 @@ type Endpoint interface {
 	// to its peer
 	Shutdown(flags ShutdownFlags) error
 
+	// SetSockOpt sets a socket option. opt should be one of the *Option types
+	SetSockOpt(opt interface{}) error
+
 	// GetSockOpt gets a socket option. opt should be a pointer to one of the
 	// *Option types
 	GetSockOpt(opt interface{}) error

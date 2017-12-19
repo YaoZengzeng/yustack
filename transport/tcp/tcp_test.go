@@ -12,6 +12,8 @@ import (
 	"github.com/YaoZengzeng/yustack/waiter"
 	"github.com/YaoZengzeng/yustack/types"
 	"github.com/YaoZengzeng/yustack/checker"
+	"github.com/YaoZengzeng/yustack/buffer"
+	"github.com/YaoZengzeng/yustack/seqnum"
 )
 
 const (
@@ -263,4 +265,293 @@ func TestOutOfOrderReceive(t *testing.T) {
 			checker.TCPFlags(header.TCPFlagAck),
 		),
 	)
+}
+
+func TestOutOfOrderFlood(t *testing.T) {
+	c := context.New(t, defaultMTU)
+	defer c.Cleanup()
+
+	// Create a new connection with initial window size of 10
+	opt := types.ReceiveBufferSizeOption(10)
+	c.CreateConnected(789, 30000, &opt)
+
+	if _, err := c.EP.Read(nil); err != types.ErrWouldBlock {
+		t.Fatalf("Unexpected error from Read: %v", err)
+	}
+
+	// Send 100 packets before the actual one that is expected
+	data := []byte{1, 2, 3, 4, 5, 6}
+	for i := 0; i < 100; i++ {
+		c.SendPacket(data[3:], &context.Headers{
+				SrcPort:	context.TestPort,
+				DstPort:	c.Port,
+				Flags:		header.TCPFlagAck,
+				SeqNum:		796,
+				AckNum:		c.IRS.Add(1),
+				RcvWnd:		30000,
+		})
+
+		checker.IPv4(t, c.GetPacket(),
+			checker.TCP(
+				checker.DstPort(context.TestPort),
+				checker.SeqNum(uint32(c.IRS) + 1),
+				checker.AckNum(790),
+				checker.TCPFlags(header.TCPFlagAck),
+			),
+		)
+	}
+
+	// Send packet with seqnum 793. It must be discarded because the
+	// out-of-order buffer was filled by the previous packets
+	c.SendPacket(data[3:], &context.Headers{
+		SrcPort:	context.TestPort,
+		DstPort:	c.Port,
+		Flags:		header.TCPFlagAck,
+		SeqNum:		793,
+		AckNum:		c.IRS.Add(1),
+		RcvWnd:		30000,
+	})
+
+	checker.IPv4(t, c.GetPacket(),
+		checker.TCP(
+			checker.DstPort(context.TestPort),
+			checker.SeqNum(uint32(c.IRS) + 1),
+			checker.AckNum(790),
+			checker.TCPFlags(header.TCPFlagAck),
+		),
+	)
+
+	// Now send the expected packet, seqnum 790
+	c.SendPacket(data[:3], &context.Headers{
+		SrcPort:	context.TestPort,
+		DstPort:	c.Port,
+		Flags:		header.TCPFlagAck,
+		SeqNum:		790,
+		AckNum:		c.IRS.Add(1),
+		RcvWnd:		30000,
+	})
+
+	// Check that only packet 790 is acknowledged
+	checker.IPv4(t, c.GetPacket(),
+		checker.TCP(
+			checker.DstPort(context.TestPort),
+			checker.SeqNum(uint32(c.IRS) + 1),
+			checker.AckNum(793),
+			checker.TCPFlags(header.TCPFlagAck),
+		),
+	)
+}
+
+func TestFullWindowReceive(t *testing.T) {
+	c := context.New(t, defaultMTU)
+	defer c.Cleanup()
+
+	opt := types.ReceiveBufferSizeOption(10)
+	c.CreateConnected(789, 30000, &opt)
+
+	we, ch := waiter.NewChannelEntry(nil)
+	c.WQ.EventRegister(&we, waiter.EventIn)
+	defer c.WQ.EventUnregister(&we)
+
+	_, err := c.EP.Read(nil)
+	if err != types.ErrWouldBlock {
+		t.Fatalf("Unexpected error from Read: %v", err)
+	}
+
+	// Fill up the window
+	data := []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
+	c.SendPacket(data, &context.Headers{
+		SrcPort:	context.TestPort,
+		DstPort:	c.Port,
+		Flags:		header.TCPFlagAck,
+		SeqNum:		790,
+		AckNum:		c.IRS.Add(1),
+		RcvWnd:		30000,
+	})
+
+	// Wait for receive to be notified
+	select {
+	case <-ch:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("Timed out waiting for data to arrive")
+	}
+
+	// Check that data is acknowledged, and window goes to zero
+	checker.IPv4(t, c.GetPacket(),
+		checker.TCP(
+			checker.DstPort(context.TestPort),
+			checker.SeqNum(uint32(c.IRS) + 1),
+			checker.AckNum(uint32(790 + len(data))),
+			checker.TCPFlags(header.TCPFlagAck),
+			checker.Window(0),
+		),
+	)
+
+	// Receive data and check it
+	v, err := c.EP.Read(nil)
+	if err != nil {
+		t.Fatalf("Unexpected error from Read: %v", err)
+	}
+
+	if bytes.Compare(data, v) != 0 {
+		t.Fatalf("Data is different: expected %v, got %v", data, v)
+	}
+
+	// Check that we get an ACK for the newly non-zero window
+	checker.IPv4(t, c.GetPacket(),
+		checker.TCP(
+			checker.DstPort(context.TestPort),
+			checker.SeqNum(uint32(c.IRS) + 1),
+			checker.AckNum(uint32(790 + len(data))),
+			checker.TCPFlags(header.TCPFlagAck),
+			checker.Window(10),
+		),
+	)
+}
+
+func TestNoWindowShrinking(t *testing.T) {
+	c := context.New(t, defaultMTU)
+	defer c.Cleanup()
+
+	// Start off with a window size of 10, then shrink it to 5
+	opt := types.ReceiveBufferSizeOption(10)
+	c.CreateConnected(789, 30000, &opt)
+
+	opt = 5
+	if err := c.EP.SetSockOpt(opt); err != nil {
+		t.Fatalf("SetSockOpt failed: %v", err)
+	}
+
+	we, ch := waiter.NewChannelEntry(nil)
+	c.WQ.EventRegister(&we, waiter.EventIn)
+	defer c.WQ.EventUnregister(&we)
+
+	_, err := c.EP.Read(nil)
+	if err != types.ErrWouldBlock {
+		t.Fatalf("Unexpected error from Read: %v", err)
+	}
+
+	// Send 3 bytes, check that the peer acknowledges them
+	data := []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
+	c.SendPacket(data[:3], &context.Headers{
+		SrcPort:	context.TestPort,
+		DstPort:	c.Port,
+		Flags:		header.TCPFlagAck,
+		SeqNum:		790,
+		AckNum:		c.IRS.Add(1),
+		RcvWnd:		30000,
+	})
+
+	// Wait for receive to be notified
+	select {
+	case <-ch:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("Timed out waiting for data to arrive")
+	}
+
+	// Check that data is acknowledged, and that window doesn't go to zero
+	// just yet because it was previously set to 10. It must go to 7 now
+	checker.IPv4(t, c.GetPacket(),
+		checker.TCP(
+			checker.DstPort(context.TestPort),
+			checker.SeqNum(uint32(c.IRS) + 1),
+			checker.AckNum(793),
+			checker.TCPFlags(header.TCPFlagAck),
+			checker.Window(7),
+		),
+	)
+
+	// Send 7 more bytes, check that the window fills up
+	c.SendPacket(data[3:], &context.Headers{
+		SrcPort:	context.TestPort,
+		DstPort:	c.Port,
+		Flags:		header.TCPFlagAck,
+		SeqNum:		793,
+		AckNum:		c.IRS.Add(1),
+		RcvWnd:		30000,
+	})
+
+	select {
+	case <-ch:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("Timed out waiting for data to arrive")
+	}
+
+	checker.IPv4(t, c.GetPacket(),
+		checker.TCP(
+			checker.DstPort(context.TestPort),
+			checker.SeqNum(uint32(c.IRS) + 1),
+			checker.AckNum(uint32(790 + len(data))),
+			checker.TCPFlags(header.TCPFlagAck),
+			checker.Window(0),
+		),
+	)
+
+	// Receive data and check it
+	read := make([]byte, 0, 10)
+	for len(read) < len(data) {
+		v, err := c.EP.Read(nil)
+		if err != nil {
+			t.Fatalf("Unexpected error from Read: %v", err)
+		}
+
+		read = append(read, v...)
+	}
+
+	if bytes.Compare(data, read) != 0 {
+		t.Fatalf("Data is different: expected %v, got %v", data, read)
+	}
+
+	// Check that we get an ACK for the newly non-zero window, which is the
+	// new size
+	checker.IPv4(t, c.GetPacket(),
+		checker.TCP(
+			checker.DstPort(context.TestPort),
+			checker.SeqNum(uint32(c.IRS) + 1),
+			checker.AckNum(uint32(790 + len(data))),
+			checker.TCPFlags(header.TCPFlagAck),
+			checker.Window(5),
+		),
+	)
+}
+
+func TestSimpleSend(t *testing.T) {
+	c := context.New(t, defaultMTU)
+	defer c.Cleanup()
+
+	c.CreateConnected(789, 30000, nil)
+
+	data := []byte{1, 2, 3}
+	view := buffer.NewView(len(data))
+	copy(view, data)
+
+	if _, err := c.EP.Write(view, nil); err != nil {
+		t.Fatalf("Unexpected error from Write: %v", err)
+	}
+
+	// Check that data is received
+	b := c.GetPacket()
+	checker.IPv4(t, b,
+		checker.PayloadLen(len(data) + header.TCPMinimumSize),
+		checker.TCP(
+			checker.DstPort(context.TestPort),
+			checker.SeqNum(uint32(c.IRS) + 1),
+			checker.AckNum(790),
+			checker.TCPFlagsMatch(header.TCPFlagAck, ^uint8(header.TCPFlagPsh)),
+		),
+	)
+
+	if p := b[header.IPv4MinimumSize + header.TCPMinimumSize:]; bytes.Compare(data, p) != 0 {
+		t.Fatalf("Data is different: expected %v, got %v", data, p)
+	}
+
+	// Acknowledge the data
+	c.SendPacket(nil, &context.Headers{
+		SrcPort:	context.TestPort,
+		DstPort:	c.Port,
+		Flags:		header.TCPFlagAck,
+		SeqNum:		790,
+		AckNum:		c.IRS.Add(1 + seqnum.Size(len(data))),
+		RcvWnd:		30000,
+	})
 }

@@ -56,6 +56,15 @@ func DstAddr(addr types.Address) NetworkChecker {
 	}
 }
 
+// PayloadLen creates a checker that checks the payload length
+func PayloadLen(plen int) NetworkChecker {
+	return func(t *testing.T, h []header.Network) {
+		if l := len(h[0].Payload()); l != plen {
+			t.Fatalf("Bad payload length, got %v, want %v", l, plen)
+		}
+	}
+}
+
 // TCP creates a checker that checks the transport protocol is TCP and
 // potentially additional transport header fields
 func TCP(checkers ...TransportChecker) NetworkChecker {
@@ -135,6 +144,35 @@ func TCPFlags(flags uint8) TransportChecker {
 
 		if f := tcp.Flags(); f != flags {
 			t.Fatalf("Bad flags, got 0x%x, want 0x%x", f, flags)
+		}
+	}
+}
+
+// Window creates a checker that checks the tcp window
+func Window(window uint16) TransportChecker {
+	return func(t *testing.T, h header.Transport) {
+		tcp, ok := h.(header.TCP)
+		if !ok {
+			return
+		}
+
+		if w := tcp.WindowSize(); w != window {
+			t.Fatalf("Bad window, got 0x%x, want 0x%x", w, window)
+		}
+	}
+}
+
+// TCPFlagsMatch creates a checker that checks the tcp flags, masked by the
+// given mask, match the supplied flags
+func TCPFlagsMatch(flags, mask uint8) TransportChecker {
+	return func(t *testing.T, h header.Transport) {
+		tcp, ok := h.(header.TCP)
+		if !ok {
+			return
+		}
+
+		if f := tcp.Flags(); (f & mask) != (flags & mask) {
+			t.Fatalf("Bad masked flags, got 0x%x, want 0x%x, mask 0x%x", f, flags, mask)
 		}
 	}
 }
