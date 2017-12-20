@@ -279,6 +279,22 @@ func (c *Context) CreateConnectedWithRawOptions(iss seqnum.Value, rcvWnd seqnum.
 	c.Port = tcp.SourcePort()
 }
 
+// CheckNoPacketTimeout verifies that no packet is received during the time
+// specified by wait
+func (c *Context) CheckNoPacketTimeout(errMsg string, wait time.Duration) {
+	select {
+	case <-c.linkEP.C:
+			c.t.Fatalf(errMsg)
+
+	case <-time.After(wait):
+	}
+}
+
+// CheckNoPacket verifies that no packet is received for 1 second
+func (c *Context) CheckNoPacket(errMsg string) {
+	c.CheckNoPacketTimeout(errMsg, 1 * time.Second)
+}
+
 // Cleanup closes the context endpoint if required
 func (c *Context) Cleanup() {
 	if c.EP != nil {

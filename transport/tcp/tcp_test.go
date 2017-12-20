@@ -555,3 +555,125 @@ func TestSimpleSend(t *testing.T) {
 		RcvWnd:		30000,
 	})
 }
+
+func TestZeroWindowSend(t *testing.T) {
+	c := context.New(t, defaultMTU)
+	defer c.Cleanup()
+
+	c.CreateConnected(789, 0, nil)
+
+	data := []byte{1, 2, 3}
+	view := buffer.NewView(len(data))
+	copy(view, data)
+
+	_, err := c.EP.Write(view, nil)
+	if err != nil {
+		t.Fatalf("Unexpected error from Write: %v", err)
+	}
+
+	// Since the window is currently zero, check that no packet is received
+	c.CheckNoPacket("Packet received when window is zero")
+
+	// Open up the window. Data should be received now
+	c.SendPacket(nil, &context.Headers{
+		SrcPort:	context.TestPort,
+		DstPort:	c.Port,
+		Flags:		header.TCPFlagAck,
+		SeqNum:		790,
+		AckNum:		c.IRS.Add(1),
+		RcvWnd:		30000,
+	})
+
+	// Check that data is received
+	b := c.GetPacket()
+	checker.IPv4(t, b,
+		checker.PayloadLen(len(data) + header.TCPMinimumSize),
+		checker.TCP(
+			checker.DstPort(context.TestPort),
+			checker.SeqNum(uint32(c.IRS) + 1),
+			checker.AckNum(790),
+			checker.TCPFlagsMatch(header.TCPFlagAck, ^uint8(header.TCPFlagPsh)),
+		),
+	)
+
+	if p := b[header.IPv4MinimumSize + header.TCPMinimumSize:]; bytes.Compare(data, p) != 0 {
+		t.Fatalf("Data is different: expected %v, got %v", data, p)
+	}
+
+	// Acknowledge the data
+	c.SendPacket(nil, &context.Headers{
+		SrcPort:	context.TestPort,
+		DstPort:	c.Port,
+		Flags:		header.TCPFlagAck,
+		SeqNum:		790,
+		AckNum:		c.IRS.Add(1 + seqnum.Size(len(data))),
+	})
+}
+
+func TestScaledWindowConnect(t *testing.T) {
+	// This test ensures that window scaling is used when the peer
+	// does advertise it and connection is established with Connect()
+	c := context.New(t, defaultMTU)
+	defer c.Cleanup()
+
+	// Set the window size greater than the maximum non-scaled window
+	opt := types.ReceiveBufferSizeOption(65535 * 3)
+	c.CreateConnectedWithRawOptions(789, 30000, &opt, []byte{
+		header.TCPOptionWS, 3, 0, header.TCPOptionNOP,
+	})
+
+	data := []byte{1, 2, 3}
+	view := buffer.NewView(len(data))
+	copy(view, data)
+
+	if _, err := c.EP.Write(view, nil); err != nil {
+		t.Fatalf("Unexpected error from Write: %v", err)
+	}
+
+	// Check that data is received, and that advertised window is 0xbfff,
+	// that it is scaled
+	b := c.GetPacket()
+	checker.IPv4(t, b,
+		checker.PayloadLen(len(data) + header.TCPMinimumSize),
+		checker.TCP(
+			checker.DstPort(context.TestPort),
+			checker.SeqNum(uint32(c.IRS) + 1),
+			checker.AckNum(790),
+			checker.Window(0xbfff),
+			checker.TCPFlagsMatch(header.TCPFlagAck, ^uint8(header.TCPFlagPsh)),
+		),
+	)
+}
+
+func TestNonScaledWindowConnect(t *testing.T) {
+	// This test ensures that window scaling is not used when the peer
+	// doesn't advertise it and connection is established with Connect()
+	c := context.New(t, defaultMTU)
+	defer c.Cleanup()
+
+	// Set the window size greater than the maximum non-scaled window
+	opt := types.ReceiveBufferSizeOption(65535 * 3)
+	c.CreateConnected(789, 30000, &opt)
+
+	data := []byte{1, 2, 3}
+	view := buffer.NewView(len(data))
+	copy(view, data)
+
+	if _, err := c.EP.Write(view, nil); err != nil {
+		t.Fatalf("Unexpected error from Write: %v", err)
+	}
+
+	// Check that data is received, and that advertised window is 0xffff,
+	// that is not scaled
+	b := c.GetPacket()
+	checker.IPv4(t, b,
+		checker.PayloadLen(len(data) + header.TCPMinimumSize),
+		checker.TCP(
+			checker.DstPort(context.TestPort),
+			checker.SeqNum(uint32(c.IRS) + 1),
+			checker.AckNum(790),
+			checker.Window(0xffff),
+			checker.TCPFlagsMatch(header.TCPFlagAck, ^uint8(header.TCPFlagPsh)),
+		),
+	)
+}

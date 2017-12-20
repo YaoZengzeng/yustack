@@ -192,6 +192,12 @@ func (s *sender) handleRcvdSegment(seg *segment) {
 			ackLeft -= dataLen
 		}
 	}
+
+	// Send more data now that some of the pending data has been ack'd, or
+	// that the window opened up, or the congestion window was infalted due
+	// to a duplicate ack during fast recovery. This will also re-enable the
+	// retransmit timer if needed
+	s.sendData()
 }
 
 // sendSegment sends a new segment containing the given payload, flags and
