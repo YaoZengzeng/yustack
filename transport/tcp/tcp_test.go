@@ -677,3 +677,76 @@ func TestNonScaledWindowConnect(t *testing.T) {
 		),
 	)
 }
+
+func TestScaledWindowAccept(t *testing.T) {
+	// This test ensures that window scaling is used when the peer
+	// does advertise it and connection is established with Accept()
+	c := context.New(t, defaultMTU)
+	defer c.Cleanup()
+
+	// Create EP and start listening
+	wq := &waiter.Queue{}
+	ep, err := c.Stack().NewEndpoint(tcp.ProtocolNumber, ipv4.ProtocolNumber, wq)
+	if err != nil {
+		t.Fatalf("NewEndpoint failed: %v", err)
+	}
+	defer ep.Close()
+
+	// Set the window size greater than the maximum non-scaled window
+	if err := ep.SetSockOpt(types.ReceiveBufferSizeOption(65535 * 3)); err != nil {
+		t.Fatalf("SetSockOpt failed: %v", err)
+	}
+
+	if err := ep.Bind(types.FullAddress{Port: context.StackPort}); err != nil {
+		t.Fatalf("Bind failed: %v", err)
+	}
+
+	if err := ep.Listen(10); err != nil {
+		t.Fatalf("Listen failed: %v", err)
+	}
+
+	// Do 3-way handshake
+	c.PassiveConnectWithOptions(100, 2, header.TCPSynOptions{MSS: defaultIPv4MSS})
+
+	// Try to accept the connection
+	we, ch := waiter.NewChannelEntry(nil)
+	wq.EventRegister(&we, waiter.EventIn)
+	defer wq.EventUnregister(&we)
+
+	c.EP, _, err = ep.Accept()
+	if err == types.ErrWouldBlock {
+		// Wait for connection to be established
+		select {
+		case <-ch:
+			c.EP, _, err = ep.Accept()
+			if err != nil {
+				t.Fatalf("Accept failed: %v", err)
+			}
+
+		case <-time.After(1 * time.Second):
+			t.Fatalf("Timed out waiting for accept")
+		}
+	}
+
+	data := []byte{1, 2, 3}
+	view := buffer.NewView(len(data))
+	copy(view, data)
+
+	if _, err := c.EP.Write(view, nil); err != nil {
+		t.Fatalf("Unexpected error from Write: %v", err)
+	}
+
+	// Check that data is received and that advertised window is 0xbfff,
+	// that it is scaled
+	b := c.GetPacket()
+	checker.IPv4(t, b,
+		checker.PayloadLen(len(data) + header.TCPMinimumSize),
+		checker.TCP(
+			checker.DstPort(context.TestPort),
+			checker.SeqNum(uint32(c.IRS) + 1),
+			checker.AckNum(790),
+			checker.Window(0xbfff),
+			checker.TCPFlagsMatch(header.TCPFlagAck, ^uint8(header.TCPFlagPsh)),
+		),
+	)
+}

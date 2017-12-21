@@ -32,6 +32,10 @@ const (
 	// TestPort is the TCP port used for packets sent to the stack via the link layer
 	// endpoint
 	TestPort = 4096
+
+	// testInitialSequenceNumber is the initial sequence number sent in packets that
+	// are sent in response to a SYN or in the initial SYN sent to the stack
+	testInitialSequenceNumber = 789
 )
 
 // Headers is used to represent the TCP header fields when building a
@@ -300,4 +304,80 @@ func (c *Context) Cleanup() {
 	if c.EP != nil {
 		c.EP.Close()
 	}
+}
+
+// PassiveConnectionWithOptions initiates a new connectin (with the specified TCP
+// options enabled) to the port on which the Context.ep is listening for new connections.
+// It also validates that the SYN-ACK has the expected values for the enabled options.
+//
+// NOTE: MSS is not a negotiated option and it can be asymmetric in each direction. This
+// function uses the mayPayload to set the MSS to be sent to the peer on a connect and validates
+// that the MSS in the SYN-ACK response is equal to the MTU - (tcphdr len + iphdr len)
+//
+// wndScale is the expected window scale in the SYN-ACK and synOptions.WS is the value of the window
+// scaling option to be sent in the SYN. If synOptions.WS > 0 then we send the WindowScale option
+func (c *Context) PassiveConnectWithOptions(maxPayload, wndScale int, synOptions header.TCPSynOptions) {
+	opts := []byte{
+		header.TCPOptionMSS, 4, byte(maxPayload / 256), byte(maxPayload % 256),
+	}
+
+	if synOptions.WS >= 0 {
+		opts = append(opts, []byte{
+			header.TCPOptionWS, 3, byte(synOptions.WS), header.TCPOptionNOP,
+		}...)
+	}
+
+	// Send a SYN request
+	iss := seqnum.Value(testInitialSequenceNumber)
+	c.SendPacket(nil, &Headers{
+		SrcPort:	TestPort,
+		DstPort:	StackPort,
+		Flags:		header.TCPFlagSyn,
+		SeqNum:		iss,
+		RcvWnd:		30000,
+		TCPOpts:	opts,
+	})
+
+	// Receive the SYN-ACK reply. Make sure MSS is present
+	b := c.GetPacket()
+	tcp := header.TCP(header.IPv4(b).Payload())
+	c.IRS = seqnum.Value(tcp.SequenceNumber())
+
+	tcpCheckers := []checker.TransportChecker{
+		checker.SrcPort(StackPort),
+		checker.DstPort(TestPort),
+		checker.TCPFlags(header.TCPFlagAck | header.TCPFlagSyn),
+		checker.AckNum(uint32(iss) + 1),
+		checker.TCPSynOptions(header.TCPSynOptions{MSS: synOptions.MSS, WS: wndScale}),
+	}
+
+	// If TS option was enabled in the original SYN then add a checker to
+	// validate the Timestamp option in the SYN-ACk
+/*	if synOptions.TS {
+		tcpCheckers = append(tcpCheckers, checker.TCPTimestampChecker(synOptions.TS, 0, synOptions.TSVal))
+	} else {
+		tcpCheckers = append(tcpCheckers, checker.TCPTimestampChecker(false, 0, 0))
+	}*/
+
+	checker.IPv4(c.t, b, checker.TCP(tcpCheckers...))
+	rcvWnd := seqnum.Size(30000)
+	ackHeaders := &Headers{
+		SrcPort:	TestPort,
+		DstPort:	StackPort,
+		Flags:		header.TCPFlagAck,
+		SeqNum:		iss + 1,
+		AckNum:		c.IRS + 1,
+		RcvWnd:		rcvWnd,
+	}
+
+	// If WS was expected to be in effect then scale the advertised window
+	// correspoindingly
+	if synOptions.WS > 0 {
+		ackHeaders.RcvWnd = rcvWnd >> byte(synOptions.WS)
+	}
+
+	// Send ACK
+	c.SendPacket(nil, ackHeaders)
+
+	c.Port = StackPort
 }

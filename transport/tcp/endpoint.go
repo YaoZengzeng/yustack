@@ -34,7 +34,7 @@ const (
 )
 
 // DefaultBufferSize is the default size of the receive and send buffers
-const DefaultBufferSize = 1024
+const DefaultBufferSize = 208 * 1024
 
 // endpoint represents a TCP endpoint. This struct serves as the interface
 // between users of the endpoint and the protocol implementation; it is legal to

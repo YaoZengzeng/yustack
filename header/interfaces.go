@@ -7,6 +7,9 @@ import (
 // Transport offers generic methods to query and/or update the fields of the
 // header of a transport protocol buffer
 type Transport interface {
+	// SourcePort returns the value of the "source port" field
+	SourcePort() uint16
+
 	// Destination returns the value of the "destination port" field
 	DestinationPort() uint16
 }

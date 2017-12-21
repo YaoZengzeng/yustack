@@ -146,6 +146,7 @@ func (l *listenContext) createConnectedEndpoint(s *segment, iss seqnum.Value, ir
 	n.boundNicId = s.route.NicId()
 	n.route = s.route.Clone()
 	n.effectiveNetProtocols = []types.NetworkProtocolNumber{netProtocol}
+	n.rcvBufSize = int(l.rcvWnd)
 
 	// Register new endpoint so that packets are routed to it
 	if err := n.stack.RegisterTransportEndpoint(n.boundNicId, n.effectiveNetProtocols, ProtocolNumber, n.id, n); err != nil {
@@ -190,6 +191,11 @@ func (l *listenContext) createEndpointAndPerformHandshake(s *segment, opts *head
 		log.Printf("createEndpointAndPerformHandshake: handshake execute failed: %v\n", err)
 		return nil, err
 	}
+
+	// Update the receive window scaling. We can't do it before the
+	// handshake because it's possible that the peer doesn't support window
+	// scaling
+	ep.rcv.rcvWndScale = h.effectiveRcvWndScale()
 
 	return ep, nil
 }

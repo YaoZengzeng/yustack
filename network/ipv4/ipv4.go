@@ -23,7 +23,7 @@ const (
 
 	// maxTotalSize is the maximum size that can be encoded in the 16-bit
 	// TotalLength field of the ipv4 header
-	maxTotalSize = 0xfff
+	maxTotalSize = 0xffff
 )
 
 type address [header.IPv4AddressSize]byte

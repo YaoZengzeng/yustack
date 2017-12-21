@@ -1,6 +1,7 @@
 package checker
 
 import (
+	"encoding/binary"
 	"testing"
 
 	"github.com/YaoZengzeng/yustack/header"
@@ -97,6 +98,15 @@ func TCP(checkers ...TransportChecker) NetworkChecker {
 	}
 }
 
+// SrcPort creates a checker that checks the source port
+func SrcPort(port uint16) TransportChecker {
+	return func(t *testing.T, h header.Transport) {
+		if p := h.SourcePort(); p != port {
+			t.Fatalf("Bad source port, got %v, want %v", p, port)
+		}
+	}
+}
+
 // DstPort creates a checker that checks the destination port
 func DstPort(port uint16) TransportChecker {
 	return func(t *testing.T, h header.Transport) {
@@ -173,6 +183,87 @@ func TCPFlagsMatch(flags, mask uint8) TransportChecker {
 
 		if f := tcp.Flags(); (f & mask) != (flags & mask) {
 			t.Fatalf("Bad masked flags, got 0x%x, want 0x%x, mask 0x%x", f, flags, mask)
+		}
+	}
+}
+
+// TCPSynOptions creates a checker that checks the presence of TCP options in
+// SYN segments.
+//
+// If wndScale is negative, the window scale option must not be present
+func TCPSynOptions(wantOpts header.TCPSynOptions) TransportChecker {
+	return func(t *testing.T, h header.Transport) {
+		tcp, ok := h.(header.TCP)
+		if !ok {
+			return
+		}
+
+		opts := tcp.Options()
+		limit := len(opts)
+		foundMSS := false
+		foundWS := false
+		foundTS := false
+		tsVal := uint32(0)
+		tsEcr := uint32(0)
+		for i := 0; i < limit; {
+			switch opts[i] {
+			case header.TCPOptionEOL:
+				i = limit
+			case header.TCPOptionNOP:
+				i++
+			case header.TCPOptionMSS:
+				v := uint16(opts[i + 2]) << 8 | uint16(opts[i + 3])
+				if wantOpts.MSS != v {
+					t.Fatalf("Bad MSS: got %v, want %v", v, wantOpts.MSS)
+				}
+				foundMSS = true
+				i += 4
+			case header.TCPOptionWS:
+				if wantOpts.WS < 0 {
+					t.Fatalf("WS present when it shouldn't be")
+				}
+				v := int(opts[i + 2])
+				if v != wantOpts.WS {
+					t.Fatalf("Bad WS: got %v, want %v", v, wantOpts.WS)
+				}
+				foundWS = true
+				i += 3
+			case header.TCPOptionTS:
+				if i + 10 > limit || opts[i + 1] != 10 {
+					t.Fatalf("Bad length %d for TS option, limit: %d", opts[i + 1], limit)
+				}
+				tsVal = binary.BigEndian.Uint32(opts[i + 2:])
+				tsEcr = uint32(0)
+				if tcp.Flags() & header.TCPFlagAck != 0 {
+					// If the syn is an SYN-ACK then read
+					// the tsEcr value as well
+					tsEcr = binary.BigEndian.Uint32(opts[i + 6:])
+				}
+				foundTS = true
+				i += 10
+			default:
+				i += int(opts[i + 1])
+			}
+		}
+
+		if !foundMSS {
+			t.Fatalf("MSS option not found. Options: %x", opts)
+		}
+
+		if !foundWS && wantOpts.WS >= 0 {
+			t.Fatalf("WS option not found. Options: %x", opts)
+		}
+
+		if wantOpts.TS && !foundTS {
+			t.Fatalf("TS option not found. Options: %x", opts)
+		}
+
+		if foundTS && tsVal == 0 {
+			t.Fatalf("TS option specified but the timestamp value is zero")
+		}
+
+		if foundTS && tsEcr == 0 && wantOpts.TSEcr != 0 {
+			t.Fatalf("TS option specified but TSEcr is incorrect: got %d, want: %d", tsEcr, wantOpts.TSEcr)
 		}
 	}
 }
